@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LifeShot System</title>
+    <style>
+      /* === GLOBAL STYLES === */
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        background-color: #f3f4f6;
+        color: #1e293b;
+      }
+      .hidden {
+        display: none !important;
+      }
+      .wrapper {
+        max-width: 420px;
+        margin: 0 auto;
+        min-height: 100vh;
+        padding-bottom: 20px;
+      }
+
+      /* === LOGIN === */
+      .login-screen {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background: #fff;
+        padding: 20px;
+      }
+      .input-box {
+        width: 100%;
+        padding: 14px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        margin-bottom: 10px;
+        box-sizing: border-box;
+      }
+      .btn-primary {
+        width: 100%;
+        padding: 14px;
+        background: #2563eb;
+        color: white;
+        font-weight: bold;
+        border-radius: 12px;
+        border: none;
+        cursor: pointer;
+      }
+
+      /* === HEADER === */
+      .header-card {
+        background: white;
+        padding: 15px 20px;
+        border-radius: 0 0 24px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        margin-bottom: 20px;
+      }
+      .icon-box {
+        background: #2563eb;
+        color: white;
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        margin-right: 12px;
+      }
+      .btn-logout {
+        background: #f1f5f9;
+        border: none;
+        padding: 8px 12px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 11px;
+        cursor: pointer;
+        color: #64748b;
+      }
+
+      /* === LIFEGUARD DASHBOARD STYLES (Red/Orange theme) === */
+      .alert-banner {
+        background: #dc2626;
+        color: white;
+        padding: 20px;
+        border-radius: 20px;
+        margin: 0 15px 15px 15px;
+        box-shadow: 0 10px 25px rgba(220, 38, 38, 0.3);
+        display: flex;
+        align-items: center;
+        gap: 15px;
+      }
+
+      .camera-sim-card {
+        background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+        border: 2px dashed #f97316;
+        margin: 0 15px;
+        padding: 25px;
+        border-radius: 24px;
+        text-align: center;
+      }
+
+      .btn-trigger {
+        background: #f97316;
+        color: white;
+        border: none;
+        padding: 15px;
+        width: 100%;
+        border-radius: 14px;
+        font-weight: bold;
+        font-size: 16px;
+        margin-top: 15px;
+        cursor: pointer;
+        box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);
+      }
+
+      .footer-status {
+        display: flex;
+        justify-content: space-around;
+        margin-top: 30px;
+      }
+      .status-pill {
+        background: white;
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-size: 10px;
+        color: #64748b;
+        font-weight: 600;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+      }
+      .dot {
+        height: 8px;
+        width: 8px;
+        background: #22c55e;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 5px;
+      }
+
+      /* === MANAGER DASHBOARD STYLES (Clean/White theme) === */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        padding: 0 15px;
+        margin-bottom: 25px;
+      }
+      .stat-card {
+        background: white;
+        padding: 15px;
+        border-radius: 20px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 80px;
+      }
+      .stat-val {
+        font-size: 24px;
+        font-weight: 800;
+        color: #0f172a;
+      }
+      .stat-label {
+        font-size: 10px;
+        color: #64748b;
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 15px;
+        margin-bottom: 10px;
+      }
+      .section-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #334155;
+      }
+      .btn-refresh {
+        color: #2563eb;
+        background: none;
+        border: none;
+        font-size: 11px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      /* The Event Card Design */
+      .event-card {
+        background: white;
+        margin: 0 15px 12px 15px;
+        padding: 18px;
+        border-radius: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.01);
+        border: 1px solid #f1f5f9;
+      }
+      .evt-top {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #334155;
+      }
+      .evt-date {
+        font-weight: normal;
+        color: #94a3b8;
+        font-size: 11px;
+      }
+
+      .evt-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .evt-data-box {
+        background: #f8fafc;
+        padding: 10px;
+        border-radius: 12px;
+      }
+      .evt-label {
+        display: block;
+        font-size: 10px;
+        color: #94a3b8;
+        margin-bottom: 3px;
+      }
+      .evt-val {
+        font-size: 13px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .risk-badge {
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+      }
+      .risk-high {
+        background: #fee2e2;
+        color: #dc2626;
+      }
+      .risk-med {
+        background: #ffedd5;
+        color: #ea580c;
+      }
+      .risk-low {
+        background: #dcfce7;
+        color: #166534;
+      }
+
+      .btn-investigate {
+        width: 100%;
+        background: #eff6ff;
+        color: #2563eb;
+        border: none;
+        padding: 10px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 12px;
+        cursor: pointer;
+        margin-top: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="login-screen" class="login-screen">
+      <div style="font-size: 40px; margin-bottom: 10px">📷</div>
+      <h2 style="color: #1e293b; margin-top: 0">LifeShot Login</h2>
+      <input
+        type="text"
+        id="username"
+        class="input-box"
+        placeholder="Username (admin / guard)"
+      />
+      <input type="password" class="input-box" placeholder="Password" />
+      <button class="btn-primary" onclick="handleLogin()">Sign In</button>
+    </div>
+
+    <div id="lifeguard-dashboard" class="wrapper hidden">
+      <div class="header-card">
+        <div style="display: flex; align-items: center">
+          <div class="icon-box">🏊</div>
+          <div>
+            <h3 style="margin: 0; font-size: 16px">Lifeguard Station</h3>
+            <span style="font-size: 11px; color: #64748b"
+              >Monitoring Pool A</span
+            >
+          </div>
+        </div>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
+      </div>
+
+      <div class="alert-banner">
+        <div style="font-size: 24px">⚠️</div>
+        <div>
+          <strong style="display: block">SYSTEM ACTIVE</strong>
+          <span style="font-size: 12px; opacity: 0.9"
+            >Analyzing live camera feed...</span
+          >
+        </div>
+      </div>
+
+      <div class="camera-sim-card">
+        <h3 style="margin: 0 0 10px 0; color: #c2410c">
+          📹 Camera Feed Simulator
+        </h3>
+        <p style="font-size: 12px; color: #9a3412; margin-bottom: 20px">
+          Upload a frame to trigger detection logic
+        </p>
+
+        <input
+          type="file"
+          id="imageInput"
+          accept="image/*"
+          style="width: 100%; font-size: 12px"
+        />
+        <button class="btn-trigger" onclick="uploadImage()">
+          🚨 Trigger Alarm Event
+        </button>
+        <div
+          id="upload-status"
+          style="
+            margin-top: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            color: #334155;
+          "
+        ></div>
+      </div>
+
+      <div class="footer-status">
+        <div class="status-pill"><span class="dot"></span>Rekognition</div>
+        <div class="status-pill"><span class="dot"></span>Lambda</div>
+        <div class="status-pill"><span class="dot"></span>SNS</div>
+      </div>
+    </div>
+
+    <div id="manager-dashboard" class="wrapper hidden">
+      <div class="header-card">
+        <div style="display: flex; align-items: center">
+          <div class="icon-box">📊</div>
+          <div>
+            <h3 style="margin: 0; font-size: 16px">LifeShot Manager</h3>
+            <span style="font-size: 11px; color: #64748b"
+              >Analytics Dashboard</span
+            >
+          </div>
+        </div>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">TOTAL EVENTS</span>
+          <span class="stat-val" id="stat-total">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">RESOLVED</span>
+          <span class="stat-val">85%</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">AVG RESPONSE</span>
+          <span class="stat-val">1.2s</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">HIGH RISK</span>
+          <span class="stat-val" id="stat-risk" style="color: #dc2626">0</span>
+        </div>
+      </div>
+
+      <div class="section-header">
+        <span class="section-title">Historical Events</span>
+        <button class="btn-refresh" onclick="fetchEvents()">
+          Refresh List
+        </button>
+      </div>
+
+      <div id="events-container">
+        <p
+          style="
+            text-align: center;
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 20px;
+          "
+        >
+          Loading data...
+        </p>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE_URL =
+        "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
+
+      function handleLogin() {
+        const user = document.getElementById("username").value.toLowerCase();
+        if (user.includes("admin")) {
+          showScreen("manager-dashboard");
+          fetchEvents();
+        } else if (user.includes("guard")) {
+          showScreen("lifeguard-dashboard");
+        } else {
+          alert('Try "admin" or "guard"');
+        }
+      }
+
+      function showScreen(id) {
+        document.getElementById("login-screen").classList.add("hidden");
+        document.getElementById("lifeguard-dashboard").classList.add("hidden");
+        document.getElementById("manager-dashboard").classList.add("hidden");
+        document.getElementById(id).classList.remove("hidden");
+      }
+
+      function logout() {
+        location.reload();
+      }
+
+      // --- UPLOAD LOGIC (Lifeguard) ---
+      async function uploadImage() {
+        const file = document.getElementById("imageInput").files[0];
+        const status = document.getElementById("upload-status");
+        if (!file) {
+          alert("Select a file first!");
+          return;
+        }
+
+        status.innerText = "⏳ Getting permission...";
+        status.style.color = "blue";
+
+        try {
+          const authRes = await fetch(
+            `${API_BASE_URL}/get-upload-url?filename=${file.name}`
+          );
+          const authData = await authRes.json();
+
+          status.innerText = "🚀 Uploading to S3...";
+          await fetch(authData.upload_url, {
+            method: "PUT",
+            headers: { "Content-Type": "image/jpeg" },
+            body: file,
+          });
+
+          status.innerText = "✅ Uploaded! Processing...";
+          status.style.color = "green";
+
+          // Optional: Alert the user
+          alert("Event triggered successfully!");
+        } catch (e) {
+          status.innerText = "❌ Error: " + e.message;
+          status.style.color = "red";
+        }
+      }
+
+      // --- FETCH EVENTS LOGIC (Manager) ---
+      async function fetchEvents() {
+        const container = document.getElementById("events-container");
+
+        try {
+          const res = await fetch(`${API_BASE_URL}/events`);
+          if (!res.ok) throw new Error("Network response was not ok");
+
+          const data = await res.json();
+
+          // Update Stats
+          document.getElementById("stat-total").innerText = data.length;
+          const highRiskCount = data.filter((i) => i.riskScore > 85).length;
+          document.getElementById("stat-risk").innerText = highRiskCount;
+
+          // Sort & Render
+          data.sort((a, b) => b.timestamp - a.timestamp);
+          container.innerHTML = "";
+
+          data.forEach((item) => {
+            let riskClass = "risk-low";
+            if (item.riskScore > 85) riskClass = "risk-high";
+            else if (item.riskScore > 60) riskClass = "risk-med";
+
+            const dateStr = item.created_at || "Just now";
+            const shortId = item.eventId ? item.eventId : "EVT-???";
+
+            const html = `
+                    <div class="event-card">
+                        <div class="evt-top">
+                            <span>${shortId}</span>
+                            <span class="evt-date">${dateStr}</span>
+                        </div>
+                        <div class="evt-grid">
+                            <div class="evt-data-box">
+                                <span class="evt-label">Location</span>
+                                <span class="evt-val">Zone ${
+                                  item.zone || "4"
+                                }</span>
+                            </div>
+                            <div class="evt-data-box">
+                                <span class="evt-label">Risk Score</span>
+                                <span class="risk-badge ${riskClass}">${
+              item.riskScore
+            }/100</span>
+                            </div>
+                        </div>
+                        <div class="evt-grid">
+                            <div class="evt-data-box">
+                                <span class="evt-label">Status</span>
+                                <span class="evt-val">${item.status}</span>
+                            </div>
+                            <div class="evt-data-box">
+                                <span class="evt-label">Delta</span>
+                                <span class="evt-val">${
+                                  item.movement_delta_score || "0"
+                                }</span>
+                            </div>
+                        </div>
+                        <button class="btn-investigate">Investigate Event</button>
+                    </div>
+                    `;
+            container.innerHTML += html;
+          });
+        } catch (e) {
+          console.error(e);
+          container.innerHTML = `<p style="text-align:center; color:red;">Connection Error. Check API.</p>`;
+        }
+      }
+    </script>
+  </body>
+</html>
