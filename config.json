@@ -2,26 +2,22 @@
   "video_path": "data\\demo_video.mp4",
   "roi_polygon": [
     [
-      1917,
-      326
+      11,
+      9
     ],
     [
-      1918,
-      1078
+      1907,
+      12
     ],
     [
-      187,
-      1068
+      1910,
+      1066
     ],
     [
-      109,
-      398
-    ],
-    [
-      1008,
-      289
+      11,
+      1069
     ]
   ],
   "notes": "ROI polygon for analysis area (shadow side)",
-  "analysis_fps": 5
+  "analysis_fps": 30
 }
