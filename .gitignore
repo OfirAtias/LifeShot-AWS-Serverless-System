@@ -17,10 +17,6 @@ Thumbs.db
 # Logs
 *.log
 
-# Data / videos
-data/*.mp4
-data/*.avi
-
 # Torch / Ultralytics
 runs/
 *.pt
