@@ -2,20 +2,20 @@
   "video_path": "data\\demo_video.mp4",
   "roi_polygon": [
     [
-      11,
-      9
+      1915,
+      319
     ],
     [
-      1907,
-      12
+      1078,
+      346
     ],
     [
-      1910,
+      528,
       1066
     ],
     [
-      11,
-      1069
+      1906,
+      1075
     ]
   ],
   "notes": "ROI polygon for analysis area (shadow side)",
