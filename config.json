@@ -1,27 +1,35 @@
 {
   "video_path": "data\\demo_video.mp4",
   "roi_polygon": [
-    [
-      1909,
-      268
-    ],
-    [
-      851,
-      256
-    ],
-    [
-      14,
-      543
-    ],
-    [
-      16,
-      1058
-    ],
-    [
-      1907,
-      1071
-    ]
+    [1766, 218],
+    [787, 208],
+    [13, 441],
+    [15, 860],
+    [1764, 871]
   ],
-  "notes": "ROI polygon for analysis area (shadow side)",
-  "analysis_fps": 60
+  "notes": "ROI polygon scaled to 1776x878 video",
+
+  "analysis_fps": 10,
+
+  "yolo_model": "yolov8s.pt",
+  "yolo_conf": 0.20,
+  "yolo_iou": 0.50,
+
+  "match_dist": 170,
+  "match_iou": 0.03,
+  "max_miss": 55,
+  "min_hits_to_show": 2,
+
+  "drown_suspect_seconds": 3.0,
+  "drown_missing_seconds": 3.5,
+
+  "drown_speed_low_px_per_sec": 160.0,
+  "drown_energy_high_per_sec": 2.0,
+
+  "missing_energy_high_per_sec": 2.6,
+  "missing_energy_alpha": 0.35,
+
+  "missing_search_base_radius": 90,
+  "missing_search_max_radius": 260,
+  "missing_underwater_speed_px_per_sec": 140.0
 }
