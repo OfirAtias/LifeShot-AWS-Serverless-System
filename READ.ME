@@ -3,4 +3,102 @@ download libraries:
 run on CMD 
 
 pip install -r requirements.txt
+
+
+
+
+This project demonstrates a video-based people detection and tracking pipeline for a swimming pool scenario, using a pre-recorded video to simulate near–real-time analysis.
+
+The system detects and tracks people only inside a manually defined ROI (Region of Interest), as a foundation for future drowning detection logic.
+
+🧰 System Requirements
+
+Windows 10 / 11
+
+Python 3.11 (recommended)
+
+Git
+
+📁 Project Structure
+LifeShot-AWS-Serverless-System/
+│
+├─ scripts/
+│   ├─ select_roi.py        # Manual ROI selection (polygon)
+│   ├─ preview_roi.py       # Visual verification of ROI
+│   └─ run_tracking_roi.py  # Detection + tracking inside ROI
+│
+├─ trackers/
+│   └─ bytetrack.yaml       # Tracker configuration
+│
+├─ config.json              # Generated ROI & system config
+├─ .gitignore
+└─ README.md
+
+▶️ Step 1 – Clone the Repository
+git clone <REPO_URL>
+cd LifeShot-AWS-Serverless-System
+
+🐍 Step 2 – Create & Activate Python Virtual Environment
+python -m venv venv
+venv\Scripts\activate
+
+📦 Step 3 – Install Dependencies
+pip install --upgrade pip
+pip install ultralytics opencv-python numpy
+
+🎥 Step 4 – Add Demo Video
+
+Create a data directory:
+
+mkdir data
+
+
+Copy a demo video into the folder and name it:
+
+data/demo_video.mp4
+
+
+📌 Important:
+The video file is ignored by Git and must not be committed (configured in .gitignore).
+
+🟩 Step 5 – Select ROI (One-Time Setup)
+
+Run:
+
+python scripts/select_roi.py
+
+Controls:
+
+Left Mouse Click – Add point
+
+Z – Undo last point
+
+R – Reset all points
+
+ENTER – Save ROI
+
+ESC – Exit without saving
+
+📄 Output:
+
+config.json
+
+
+This file stores the ROI polygon and analysis settings.
+
+👁️ Step 6 – Preview ROI
+python scripts/preview_roi.py
+
+
+✔️ Verify that the green polygon covers only the relevant water area (e.g., shaded half of the pool).
+
+🧠 Step 7 – Run Detection & Tracking
 python scripts/run_tracking_roi.py
+
+What You Should See:
+
+Bounding boxes around people
+
+A unique tracking ID per person
+
+Tracking performed only inside the ROI
