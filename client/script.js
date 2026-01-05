@@ -234,19 +234,40 @@ function renderTable(data) {
   // Sort by created_at descending
   const sorted = [...data].sort((a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at));
 
-  sorted.forEach((event) => {
+  sorted.forEach((event, index) => {
     const row = document.createElement("tr");
 
     const status = normalizeStatus(event.status || "UNKNOWN");
     const statusClass = status === "OPEN" ? "status-open" : "status-resolved";
 
-    // ISO date (keep full)
-    const created = event.created_at || "N/A";
+    // Format date to YYYY-MM-DD HH:mm:ss UTC
+    const createdDate = parseDateSafe(event.created_at);
+    const created = createdDate.getTime() === 0 
+      ? "N/A"
+      : createdDate.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+
+    // Calculate response time
+    let responseTime = "—";
+    if (event.closedAt && event.created_at) {
+      const createdMs = parseDateSafe(event.created_at).getTime();
+      const closedMs = parseDateSafe(event.closedAt).getTime();
+      if (createdMs > 0 && closedMs > createdMs) {
+        const diffSec = Math.floor((closedMs - createdMs) / 1000);
+        const mins = Math.floor(diffSec / 60);
+        const secs = diffSec % 60;
+        responseTime = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+      }
+    } else if (status === "OPEN") {
+      responseTime = "In progress";
+    }
+
+    // Sequential ID (1-based)
+    const displayId = index + 1;
 
     row.innerHTML = `
       <td>
-        <span style="color:#94a3b8; font-family: monospace; font-size:11px;">
-          ${event.eventId || "N/A"}
+        <span style="color:#64748b; font-weight:600; font-size:13px;" data-event-id="${event.eventId || ''}">
+          ${displayId}
         </span>
       </td>
 
@@ -254,12 +275,12 @@ function renderTable(data) {
         <span class="status-badge ${statusClass}">${status}</span>
       </td>
 
-      <td style="color:#64748b; font-size:11px;">
+      <td style="color:#64748b; font-size:12px;">
         ${created}
       </td>
 
-      <td style="font-size:11px;">
-        ${event.warningImageKey ? "YES" : "NO"}
+      <td style="font-size:12px; color:#475569; font-weight:500;">
+        ${responseTime}
       </td>
     `;
 
@@ -323,6 +344,12 @@ function renderDrowningGallery(events) {
       ? `${afterUrl}${afterUrl.includes("?") ? "&" : "?"}t=${Date.now()}`
       : "";
 
+    // Format date
+    const createdDate = parseDateSafe(evt.created_at);
+    const createdFormatted = createdDate.getTime() === 0 
+      ? "N/A"
+      : createdDate.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+
     card.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px;">
         <div style="min-width:0;">
@@ -330,7 +357,7 @@ function renderDrowningGallery(events) {
             ${evt.eventId || "N/A"}
           </div>
           <div style="font-size:11px; color:#64748b; margin-top:3px;">
-            ${created}
+            ${createdFormatted}
           </div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -340,19 +367,19 @@ function renderDrowningGallery(events) {
 
       <div style="display:flex; gap:10px;">
         <div style="flex:1;">
-          <div style="font-size:10px; opacity:0.8; margin-bottom:6px;">BEFORE</div>
+          <div style="font-size:10px; font-weight:600; opacity:0.7; margin-bottom:6px; color:#475569;">BEFORE</div>
           ${
             beforeImg
-              ? `<img src="${beforeImg}" style="width:100%; border-radius:12px;" />`
+              ? `<img src="${beforeImg}" style="width:100%; border-radius:10px;" />`
               : `<div style="font-size:11px; color:#94a3b8;">No prevImageUrl</div>`
           }
         </div>
 
         <div style="flex:1;">
-          <div style="font-size:10px; opacity:0.8; margin-bottom:6px;">AFTER</div>
+          <div style="font-size:10px; font-weight:600; opacity:0.7; margin-bottom:6px; color:#475569;">AFTER</div>
           ${
             afterImg
-              ? `<img src="${afterImg}" style="width:100%; border-radius:12px;" />`
+              ? `<img src="${afterImg}" style="width:100%; border-radius:10px;" />`
               : `<div style="font-size:11px; color:#94a3b8;">No warningImageUrl</div>`
           }
         </div>
@@ -362,3 +389,85 @@ function renderDrowningGallery(events) {
     gallery.appendChild(card);
   });
 }
+
+// ===============================
+// IMAGE LIGHTBOX (Minimal JS)
+// ===============================
+(function() {
+  // Create lightbox HTML on load
+  if (!document.getElementById('image-lightbox')) {
+    const lightbox = document.createElement('div');
+    lightbox.id = 'image-lightbox';
+    lightbox.innerHTML = `
+      <div id="lightbox-content">
+        <button id="lightbox-close" aria-label="Close">&times;</button>
+        <img id="lightbox-image" src="" alt="Lightbox Image" />
+        <div id="lightbox-zoom-controls">
+          <button class="lightbox-zoom-btn" id="zoom-out" aria-label="Zoom Out">-</button>
+          <button class="lightbox-zoom-btn" id="zoom-reset" aria-label="Reset Zoom">⟲</button>
+          <button class="lightbox-zoom-btn" id="zoom-in" aria-label="Zoom In">+</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(lightbox);
+
+    let currentZoom = 1;
+
+    // Open lightbox
+    document.addEventListener('click', (e) => {
+      if (e.target.tagName === 'IMG' && e.target.src && !e.target.closest('#image-lightbox')) {
+        const lb = document.getElementById('image-lightbox');
+        const lbImg = document.getElementById('lightbox-image');
+        lbImg.src = e.target.src;
+        currentZoom = 1;
+        lbImg.style.transform = `scale(${currentZoom})`;
+        lb.classList.add('active');
+      }
+    });
+
+    // Close lightbox
+    const closeLightbox = () => {
+      document.getElementById('image-lightbox').classList.remove('active');
+      currentZoom = 1;
+    };
+
+    document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
+    
+    document.getElementById('image-lightbox').addEventListener('click', (e) => {
+      if (e.target.id === 'image-lightbox') closeLightbox();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeLightbox();
+    });
+
+    // Zoom controls
+    const lbImg = document.getElementById('lightbox-image');
+    
+    document.getElementById('zoom-in').addEventListener('click', () => {
+      currentZoom = Math.min(currentZoom + 0.25, 3);
+      lbImg.style.transform = `scale(${currentZoom})`;
+    });
+
+    document.getElementById('zoom-out').addEventListener('click', () => {
+      currentZoom = Math.max(currentZoom - 0.25, 0.5);
+      lbImg.style.transform = `scale(${currentZoom})`;
+    });
+
+    document.getElementById('zoom-reset').addEventListener('click', () => {
+      currentZoom = 1;
+      lbImg.style.transform = `scale(${currentZoom})`;
+    });
+
+    // Mouse wheel zoom
+    lbImg.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (e.deltaY < 0) {
+        currentZoom = Math.min(currentZoom + 0.1, 3);
+      } else {
+        currentZoom = Math.max(currentZoom - 0.1, 0.5);
+      }
+      lbImg.style.transform = `scale(${currentZoom})`;
+    });
+  }
+})();
