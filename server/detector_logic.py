@@ -7,23 +7,25 @@ import io
 from datetime import datetime
 from PIL import Image, ImageDraw
 
+
 # =========================
 # CONFIG
 # =========================
 FRAMES_BUCKET   = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
 FRAMES_PREFIX   = os.getenv("FRAMES_PREFIX", "LifeShot/")
-EVENTS_TABLE    = os.getenv("EVENTS_TABLE", "LifeShot_Events")
-SNS_TOPIC_ARN   = os.getenv("SNS_TOPIC_ARN")
-CAMERA_ID       = "cam-01"
 
-EXPECTED_COUNT  = int(os.getenv("EXPECTED_COUNT", "8"))
-CONFIRM_FRAMES  = int(os.getenv("CONFIRM_FRAMES", "3"))
+EXPECTED_COUNT  = int(os.getenv("EXPECTED_COUNT", "8"))      # למשל 8 קבוע
+CONFIRM_FRAMES  = int(os.getenv("CONFIRM_FRAMES", "1"))      # 1 כדי "לצלם הכל" (Debug)
+MIN_CONFIDENCE  = float(os.getenv("MIN_CONFIDENCE", "75"))
 
-MIN_CONFIDENCE  = 75
-MIN_BOX_AREA    = 0.005
-MAX_BOX_AREA    = 0.60
+MIN_BOX_AREA    = float(os.getenv("MIN_BOX_AREA", "0.005"))
+MAX_BOX_AREA    = float(os.getenv("MAX_BOX_AREA", "0.60"))
 
-MATCH_DIST      = 0.12  # מרחק נורמליזציה למציאת אדם זהה
+MATCH_DIST      = float(os.getenv("MATCH_DIST", "0.12"))     # מרחק נורמליזציה התאמה בין אנשים
+
+# Optional logging to Dynamo/SNS
+EVENTS_TABLE    = os.getenv("EVENTS_TABLE", "")
+SNS_TOPIC_ARN   = os.getenv("SNS_TOPIC_ARN", "")
 
 rekognition = boto3.client("rekognition")
 s3          = boto3.client("s3")
@@ -37,11 +39,12 @@ def lambda_handler(event, context):
 
     keys = list_frames_numeric(FRAMES_BUCKET, FRAMES_PREFIX)
     if len(keys) < 2:
-        return resp("Not enough frames")
+        return _resp(200, {"status": "NO_FRAMES", "message": "Not enough frames found"})
 
+    # Analyze each frame: detect people + boxes
     frames = []
     for key in keys:
-        people = detect_people(bucket=FRAMES_BUCKET, key=key)
+        people = detect_people_with_boxes(FRAMES_BUCKET, key)
         frames.append({
             "key": key,
             "people": people,
@@ -49,121 +52,179 @@ def lambda_handler(event, context):
         })
 
     missing_streak = 0
+    alerts = []
 
+    # Iterate frame-by-frame
     for i in range(1, len(frames)):
         prev = frames[i - 1]
         curr = frames[i]
 
+        # Condition: expected_count -> expected_count - 1 (missing one)
         if curr["count"] == EXPECTED_COUNT - 1:
             missing_streak += 1
         else:
             missing_streak = 0
 
+        # When streak reaches confirm, we create an alert image
         if missing_streak >= CONFIRM_FRAMES:
-            missing_person = find_missing_person(
-                prev["people"], curr["people"]
-            )
+            missing_person = find_missing_person(prev["people"], curr["people"], MATCH_DIST)
 
-            if not missing_person:
-                continue
+            if missing_person:
+                alert_key = draw_missing_box(
+                    bucket=FRAMES_BUCKET,
+                    source_key=prev["key"],      # draw on last-seen frame (previous)
+                    missing_person=missing_person
+                )
 
-            alert_image_key = draw_alert_box(
-                bucket=FRAMES_BUCKET,
-                source_key=prev["key"],
-                person=missing_person
-            )
+                alert_item = {
+                    "missing_detected_on_frame": curr["key"],
+                    "last_seen_frame": prev["key"],
+                    "expected_count": EXPECTED_COUNT,
+                    "detected_count": curr["count"],
+                    "alert_image_key": alert_key,
+                    "alert_image_s3": f"s3://{FRAMES_BUCKET}/{alert_key}",
+                    "missing_box": missing_person["box"],   # normalized 0..1 box
+                    "missing_center": missing_person["center"]
+                }
+                alerts.append(alert_item)
 
-            save_event(
-                frame_key=prev["key"],
-                alert_image=alert_image_key,
-                expected=EXPECTED_COUNT,
-                detected=curr["count"]
-            )
+                # OPTIONAL: write event to DynamoDB
+                if EVENTS_TABLE:
+                    save_event_to_dynamo(alert_item)
 
-            return resp({
-                "status": "ALERT_SENT",
-                "alert_frame": prev["key"],
-                "alert_image": f"s3://{FRAMES_BUCKET}/{alert_image_key}",
-                "expected": EXPECTED_COUNT,
-                "detected": curr["count"]
-            })
+                # OPTIONAL: send SNS per alert (can be spammy if many!)
+                if SNS_TOPIC_ARN:
+                    send_sns(alert_item)
 
-    return resp({
-        "status": "NO_ALERT",
-        "expected": EXPECTED_COUNT,
-        "frames": [
-            {"key": f["key"], "count": f["count"]} for f in frames
-        ]
+            # Important:
+            # If CONFIRM_FRAMES=1, this will fire on every missing frame.
+            # If CONFIRM_FRAMES>1, it fires once the streak threshold is reached.
+            #
+            # To avoid duplicate alerts on every subsequent frame in the same streak,
+            # reset streak after capturing one alert:
+            missing_streak = 0
+
+    return _resp(200, {
+        "status": "ALERTS_COLLECTED" if alerts else "NO_ALERT",
+        "expected_count": EXPECTED_COUNT,
+        "confirm_frames": CONFIRM_FRAMES,
+        "total_frames": len(frames),
+        "alerts_count": len(alerts),
+        "alerts": alerts,
+        "counts": [{"key": f["key"], "count": f["count"]} for f in frames]
     })
 
 # =========================
-# Rekognition
+# List frames by numeric order: 1.png,2.png,...
 # =========================
-def detect_people(bucket, key):
-    res = rekognition.detect_labels(
-        Image={"S3Object": {"Bucket": bucket, "Name": key}},
-        MaxLabels=20,
-        MinConfidence=MIN_CONFIDENCE
-    )
+def list_frames_numeric(bucket, prefix):
+    paginator = s3.get_paginator("list_objects_v2")
+    pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
 
-    people = []
+    frames = []
+    for page in pages:
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            filename = key.split("/")[-1].lower()
+            m = re.match(r"(\d+)\.(png|jpg|jpeg|webp)$", filename)
+            if m:
+                frames.append((int(m.group(1)), key))
 
-    for label in res["Labels"]:
-        if label["Name"] == "Person":
-            for inst in label.get("Instances", []):
-                box = inst["BoundingBox"]
-                area = box["Width"] * box["Height"]
-
-                if not (MIN_BOX_AREA <= area <= MAX_BOX_AREA):
-                    continue
-
-                cx = box["Left"] + box["Width"] / 2
-                cy = box["Top"]  + box["Height"] / 2
-
-                people.append({
-                    "box": box,
-                    "center": (cx, cy)
-                })
-
-    return people
+    frames.sort(key=lambda x: x[0])
+    return [k for (_, k) in frames]
 
 # =========================
-# Find missing person
+# Rekognition: people + boxes
 # =========================
-def find_missing_person(prev_people, curr_people):
+def detect_people_with_boxes(bucket, key):
+    try:
+        res = rekognition.detect_labels(
+            Image={"S3Object": {"Bucket": bucket, "Name": key}},
+            MaxLabels=20,
+            MinConfidence=MIN_CONFIDENCE
+        )
+
+        people = []
+        for label in res.get("Labels", []):
+            if label.get("Name") == "Person":
+                for inst in label.get("Instances", []):
+                    box = inst.get("BoundingBox", {})
+                    w = float(box.get("Width", 0))
+                    h = float(box.get("Height", 0))
+                    area = w * h
+
+                    if not (MIN_BOX_AREA <= area <= MAX_BOX_AREA):
+                        continue
+
+                    cx = float(box.get("Left", 0)) + w / 2.0
+                    cy = float(box.get("Top", 0)) + h / 2.0
+
+                    people.append({
+                        "box": box,
+                        "center": (cx, cy)
+                    })
+
+        return people
+    except Exception as e:
+        print(f"[ERROR] detect_people_with_boxes failed for {key}: {e}")
+        return []
+
+# =========================
+# Find missing person between prev and curr
+# =========================
+def find_missing_person(prev_people, curr_people, max_dist):
+    """
+    Returns the first person from prev_people that has no close match in curr_people.
+    Matching uses center distance in normalized coordinates (0..1).
+    """
     for p in prev_people:
         found = False
+        px, py = p["center"]
+
         for c in curr_people:
-            dx = p["center"][0] - c["center"][0]
-            dy = p["center"][1] - c["center"][1]
-            dist = (dx*dx + dy*dy) ** 0.5
-            if dist < MATCH_DIST:
+            cx, cy = c["center"]
+            dx = px - cx
+            dy = py - cy
+            dist = (dx * dx + dy * dy) ** 0.5
+
+            if dist < max_dist:
                 found = True
                 break
+
         if not found:
             return p
+
     return None
 
 # =========================
-# Draw alert box
+# Draw red rectangle on "last seen" frame
 # =========================
-def draw_alert_box(bucket, source_key, person):
+def draw_missing_box(bucket, source_key, missing_person):
     obj = s3.get_object(Bucket=bucket, Key=source_key)
-    img = Image.open(io.BytesIO(obj["Body"].read()))
+    img_bytes = obj["Body"].read()
+
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    w, h = img.size
-    box = person["box"]
+    W, H = img.size
+    box = missing_person["box"]
 
-    left   = box["Left"] * w
-    top    = box["Top"] * h
-    right  = left + box["Width"] * w
-    bottom = top  + box["Height"] * h
+    left   = float(box["Left"]) * W
+    top    = float(box["Top"]) * H
+    right  = left + float(box["Width"]) * W
+    bottom = top  + float(box["Height"]) * H
 
+    # Draw rectangle + label
     draw.rectangle([left, top, right, bottom], outline="red", width=6)
-    draw.text((left, top - 10), "LAST SEEN", fill="red")
 
-    alert_key = source_key.replace(".png", "_ALERT.png")
+    label = "LAST SEEN"
+    text_x = max(0, left)
+    text_y = max(0, top - 20)
+    draw.text((text_x, text_y), label, fill="red")
+
+    # Save new key
+    base, ext = _split_ext(source_key)
+    alert_key = f"{base}_ALERT{ext}"
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -178,61 +239,67 @@ def draw_alert_box(bucket, source_key, person):
 
     return alert_key
 
+def _split_ext(key):
+    if key.lower().endswith(".png"):
+        return key[:-4], ".png"
+    if key.lower().endswith(".jpg"):
+        return key[:-4], ".jpg"
+    if key.lower().endswith(".jpeg"):
+        return key[:-5], ".jpeg"
+    if key.lower().endswith(".webp"):
+        return key[:-5], ".webp"
+    return key, ".png"
+
 # =========================
-# Save event + notify
+# Optional: DynamoDB + SNS
 # =========================
-def save_event(frame_key, alert_image, expected, detected):
-    now = int(time.time())
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+def save_event_to_dynamo(alert_item):
+    try:
+        now_ts = int(time.time())
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        event_id = f"EVT-{now_ts}-{len(alert_item.get('last_seen_frame',''))}"
 
-    event = {
-        "eventId": f"EVT-{now}",
-        "timestamp": str(now),
-        "camera_id": CAMERA_ID,
-        "status": "OPEN",
-        "frame_key": frame_key,
-        "alert_image": alert_image,
-        "expected": expected,
-        "detected": detected,
-        "created_at": now_str
-    }
+        item = {
+            "eventId": event_id,
+            "timestamp": str(now_ts),
+            "created_at": now_str,
+            "event_type": "MISSING_PERSON_FRAME",
+            "expected_count": int(alert_item["expected_count"]),
+            "detected_count": int(alert_item["detected_count"]),
+            "missing_detected_on_frame": alert_item["missing_detected_on_frame"],
+            "last_seen_frame": alert_item["last_seen_frame"],
+            "alert_image_key": alert_item["alert_image_key"],
+            "missing_box": json.dumps(alert_item["missing_box"]),
+        }
 
-    dynamodb.Table(EVENTS_TABLE).put_item(Item=event)
+        dynamodb.Table(EVENTS_TABLE).put_item(Item=item)
+    except Exception as e:
+        print(f"[WARN] Dynamo save failed: {e}")
 
-    if SNS_TOPIC_ARN:
+def send_sns(alert_item):
+    try:
+        msg = (
+            f"🚨 Missing person detected\n"
+            f"Expected: {alert_item['expected_count']}\n"
+            f"Detected: {alert_item['detected_count']}\n"
+            f"Last seen frame: {alert_item['last_seen_frame']}\n"
+            f"Detected missing on: {alert_item['missing_detected_on_frame']}\n"
+            f"Marked image: {alert_item['alert_image_s3']}\n"
+        )
         sns.publish(
             TopicArn=SNS_TOPIC_ARN,
-            Subject="🚨 LIFESHOT DROWNING ALERT",
-            Message=(
-                f"Drowning suspected\n"
-                f"Camera: {CAMERA_ID}\n"
-                f"Last seen: s3://{FRAMES_BUCKET}/{frame_key}\n"
-                f"Marked image: s3://{FRAMES_BUCKET}/{alert_image}"
-            )
+            Subject="⚠️ LIFESHOT - Missing Person Frames",
+            Message=msg
         )
+    except Exception as e:
+        print(f"[WARN] SNS publish failed: {e}")
 
 # =========================
-# Helpers
+# Response helper
 # =========================
-def list_frames_numeric(bucket, prefix):
-    paginator = s3.get_paginator("list_objects_v2")
-    pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
-
-    frames = []
-    for page in pages:
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            name = key.split("/")[-1]
-            m = re.match(r"(\d+)\.(png|jpg|jpeg)", name.lower())
-            if m:
-                frames.append((int(m.group(1)), key))
-
-    frames.sort(key=lambda x: x[0])
-    return [k for (_, k) in frames]
-
-def resp(body):
+def _resp(code, body):
     return {
-        "statusCode": 200,
+        "statusCode": code,
         "headers": {"Content-Type": "application/json"},
         "body": json.dumps(body, ensure_ascii=False)
     }
