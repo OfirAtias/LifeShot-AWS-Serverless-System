@@ -13,10 +13,12 @@ from botocore.exceptions import ClientError
 # ENV CONFIG
 # =========================
 BUCKET            = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
-FRAMES_PREFIX     = os.getenv("FRAMES_PREFIX", "LifeShot/")                 # input frames
 
-TESTINGSET_PREFIX = os.getenv("TESTINGSET_PREFIX", "LifeShot/TestingSet/")  # ALL frames: green+red + OK/ALERT
-WARNING_PREFIX    = os.getenv("WARNING_PREFIX", "LifeShot/Warning/")        # OPTIONAL: red-only (archive)
+# Default input prefix (if event doesn't override)
+FRAMES_PREFIX     = os.getenv("FRAMES_PREFIX", "LifeShot/")  # input frames
+
+# ✅ Output: DROWNINGSET
+DROWNINGSET_PREFIX = os.getenv("DROWNINGSET_PREFIX", "LifeShot/DrowningSet/")  # ALL frames: green+red + OK/ALERT
 
 MAX_FRAMES        = int(os.getenv("MAX_FRAMES", "200"))
 MIN_CONFIDENCE    = float(os.getenv("MIN_CONFIDENCE", "70"))
@@ -289,9 +291,10 @@ def put_png_and_presign(bucket, key, png_bytes):
     return presign_get_url(bucket, key)
 
 
-# =========================
-# List frames numeric order (1.png,2.png,)
-# =========================
+# ===============================
+# List frames — NOW BY LastModified ✅
+# (same function name, minimal change)
+# ===============================
 def list_frames_numeric(bucket, prefix, max_frames):
     paginator = s3.get_paginator("list_objects_v2")
     pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
@@ -303,14 +306,16 @@ def list_frames_numeric(bucket, prefix, max_frames):
             if key.endswith("/") or (not _is_image_key(key)):
                 continue
 
-            filename = key.split("/")[-1].lower()
-            m = re.match(r"^(\d+)\.(png|jpg|jpeg)$", filename)
-            if not m:
-                continue
+            # ✅ sort key is S3 LastModified (upload/modify time)
+            lm = obj.get("LastModified")
+            if lm is None:
+                lm = datetime.min.replace(tzinfo=timezone.utc)
 
-            frames.append((int(m.group(1)), key))
+            frames.append((lm, key))
 
+    # ✅ oldest -> newest (first uploaded scanned first)
     frames.sort(key=lambda x: x[0])
+
     keys = [k for _, k in frames]
     if max_frames and len(keys) > max_frames:
         keys = keys[:max_frames]
@@ -321,16 +326,32 @@ def list_frames_numeric(bucket, prefix, max_frames):
 # Lambda Handler
 # =========================
 def lambda_handler(event, context):
-    prefix            = FRAMES_PREFIX
-    testingset_prefix = TESTINGSET_PREFIX
-    warning_prefix    = WARNING_PREFIX
-    max_frames        = MAX_FRAMES
+    prefix             = FRAMES_PREFIX
+    drowningset_prefix = DROWNINGSET_PREFIX
+    max_frames         = MAX_FRAMES
 
+    # ✅ Scenes support:
+    # You can send event like {"scene": 1} or {"scene": 2}
+    # Or directly set {"prefix": "...", "drowningset_prefix": "..."}
     if isinstance(event, dict):
-        prefix            = event.get("prefix", prefix)
-        testingset_prefix = event.get("testingset_prefix", testingset_prefix)
-        warning_prefix    = event.get("warning_prefix", warning_prefix)
-        max_frames        = int(event.get("max_frames", max_frames))
+        scene = event.get("scene")
+
+        if scene == 1:
+            prefix = "LifeShot/Test1/"
+            drowningset_prefix = "LifeShot/DrowningSet/Test1/"
+        elif scene == 2:
+            prefix = "LifeShot/Test2/"
+            drowningset_prefix = "LifeShot/DrowningSet/Test2/"
+
+        prefix = event.get("prefix", prefix)
+
+        # Backward compatible: accept both "drowningset_prefix" and old "testingset_prefix"
+        if "drowningset_prefix" in event:
+            drowningset_prefix = event.get("drowningset_prefix", drowningset_prefix)
+        elif "testingset_prefix" in event:
+            drowningset_prefix = event.get("testingset_prefix", drowningset_prefix)
+
+        max_frames = int(event.get("max_frames", max_frames))
 
     frame_keys = list_frames_numeric(BUCKET, prefix, max_frames)
     if not frame_keys:
@@ -343,8 +364,8 @@ def lambda_handler(event, context):
     prev_boxes = None
     prev_count = None
 
-    # keep previous TestingSet key (so we can save prevImageKey in the event)
-    prev_testing_key = None
+    # keep previous DrowningSet key (so we can save prevImageKey in the event)
+    prev_drowningset_key = None
 
     # ===== ACTIVE ALERT STATE (based ONLY on COUNTER baseline) =====
     baseline_count       = None
@@ -395,8 +416,8 @@ def lambda_handler(event, context):
         status_label = "ALERT" if is_alert else "OK"
         title = f"{status_label} | Frame: {key} | count={curr_count}" + (f" | baseline={baseline_count}" if baseline_count is not None else "")
 
-        # ===== Build TestingSet image (GREEN + RED) =====
-        testing_png = render_png(
+        # ===== Build DrowningSet image (GREEN + RED) =====
+        drowningset_png = render_png(
             src_bucket=BUCKET,
             src_key=key,
             title=title,
@@ -406,32 +427,13 @@ def lambda_handler(event, context):
             draw_red=True
         )
 
-        testing_key = f"{testingset_prefix}{_basename(key)}_{status_label}.png"
-        testing_url = put_png_and_presign(BUCKET, testing_key, testing_png)
-
-        # OPTIONAL: still create red-only warning image for archive/debug
-        archive_warning_key = None
-        archive_warning_url = None
+        drowningset_key = f"{drowningset_prefix}{_basename(key)}_{status_label}.png"
+        drowningset_url = put_png_and_presign(BUCKET, drowningset_key, drowningset_png)
 
         created_event_id = None
 
         if is_alert:
-            # ===== Create optional Warning/ red-only image (archive) =====
-            warning_title = f"ALERT | Frame: {key} | POSSIBLE DROWNING!"
-            warning_png = render_png(
-                src_bucket=BUCKET,
-                src_key=key,
-                title=warning_title,
-                curr_boxes=[],
-                missing_boxes=active_missing_boxes,
-                draw_green=False,
-                draw_red=True
-            )
-
-            archive_warning_key = f"{warning_prefix}{_basename(key)}_WARNING.png"
-            archive_warning_url = put_png_and_presign(BUCKET, archive_warning_key, warning_png)
-
-            # ===== Create Event in DB (IMPORTANT: warningImageKey points to TESTINGSET) =====
+            # ===== Create Event in DB (warningImageKey points to DROWNINGSET) =====
             created_event_id = f"EVT-{int(time.time())}-{_basename(key)}"
             created_at_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -440,33 +442,33 @@ def lambda_handler(event, context):
                 "status": "OPEN",
                 "created_at": created_at_iso,
 
-                # ✅ This is what the client should show (TestingSet ALERT image)
-                "warningImageKey": testing_key,
+                # ✅ Client should show this (DrowningSet ALERT image)
+                "warningImageKey": drowningset_key,
             }
-            if prev_testing_key:
-                item["prevImageKey"] = prev_testing_key
+            if prev_drowningset_key:
+                item["prevImageKey"] = prev_drowningset_key
 
             wrote_db = False
             try:
                 events_table.put_item(Item=item)
                 wrote_db = True
-                print(f"[DB] Event created: {created_event_id} -> prev={prev_testing_key} warning(TESTINGSET)={testing_key}")
+                print(f"[DB] Event created: {created_event_id} -> prev={prev_drowningset_key} warning(DROWNINGSET)={drowningset_key}")
             except Exception as e:
                 print(f"[DB ERROR] Failed to write event to DynamoDB: {str(e)}")
 
-            # ===== SNS Email: send BEFORE/AFTER from TESTINGSET (not Warning/) =====
+            # ===== SNS Email: send BEFORE/AFTER from DrowningSet =====
             if wrote_db:
-                prev_url_for_sns = presign_get_url(BUCKET, prev_testing_key) if prev_testing_key else None
+                prev_url_for_sns = presign_get_url(BUCKET, prev_drowningset_key) if prev_drowningset_key else None
 
                 publish_sns_alert(
                     event_id=created_event_id,
                     created_at_iso=created_at_iso,
 
-                    # keys/urls of TestingSet BEFORE/AFTER:
-                    prev_key=prev_testing_key,
-                    warn_key=testing_key,
+                    # keys/urls of DrowningSet BEFORE/AFTER:
+                    prev_key=prev_drowningset_key,
+                    warn_key=drowningset_key,
                     prev_url=prev_url_for_sns,
-                    warn_url=testing_url
+                    warn_url=drowningset_url
                 )
 
         outputs.append({
@@ -476,18 +478,14 @@ def lambda_handler(event, context):
             "is_alert": is_alert,
             "drop_by": drop_by,
 
-            "testing_key": testing_key,
-            "testing_url": testing_url,
-
-            # archive only (optional)
-            "warning_key": archive_warning_key,
-            "warning_url": archive_warning_url,
+            "drowningset_key": drowningset_key,
+            "drowningset_url": drowningset_url,
 
             "eventId": created_event_id,
             "missing_boxes_last_seen": (active_missing_boxes if is_alert else []),
             "missing_from_prev_frame": active_from_prev_key,
 
-            "prev_testing_key": prev_testing_key,
+            "prev_drowningset_key": prev_drowningset_key,
         })
 
         # advance
@@ -495,15 +493,14 @@ def lambda_handler(event, context):
         prev_boxes = curr_boxes
         prev_count = curr_count
 
-        # store current frame testing key as "previous" for next loop
-        prev_testing_key = testing_key
+        # store current frame drowningset key as "previous" for next loop
+        prev_drowningset_key = drowningset_key
 
     return _resp(200, {
-        "status": "TESTINGSET_WARNING_AND_EVENTS_CREATED",
+        "status": "DROWNINGSET_AND_EVENTS_CREATED",
         "bucket": BUCKET,
         "frames_prefix": prefix,
-        "testingset_prefix": testingset_prefix,
-        "warning_prefix": warning_prefix,
+        "drowningset_prefix": drowningset_prefix,
         "events_table": EVENTS_TABLE_NAME,
         "sns_topic_arn_set": bool(SNS_TOPIC_ARN),
         "total_frames": len(frame_keys),
