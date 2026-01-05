@@ -3,34 +3,28 @@ import json
 import os
 import re
 import math
-from datetime import datetime
-from PIL import Image, ImageDraw
 import io
+from PIL import Image, ImageDraw
 
 # =========================
-# CONFIG (Env Vars)
+# ENV CONFIG
 # =========================
-FRAMES_BUCKET   = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
-FRAMES_PREFIX   = os.getenv("FRAMES_PREFIX", "LifeShot/")   # where 1.png.. are
-OUT_PREFIX      = os.getenv("OUT_PREFIX", "LifeShot/Warnings/")
+BUCKET        = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
+FRAMES_PREFIX = os.getenv("FRAMES_PREFIX", "LifeShot/")            # input frames location
+OUT_PREFIX    = os.getenv("OUT_PREFIX", "LifeShot/Annotated/")     # output images folder
 
-MIN_CONFIDENCE  = float(os.getenv("MIN_CONFIDENCE", "70"))
-MAX_FRAMES      = int(os.getenv("MAX_FRAMES", "50"))
+MAX_FRAMES     = int(os.getenv("MAX_FRAMES", "200"))
+MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "70"))
 
-# "count drop" rule
-DROP_BY         = int(os.getenv("DROP_BY", "1"))            # ירידה ב-1 = אזהרה
-CONFIRM_FRAMES  = int(os.getenv("CONFIRM_FRAMES", "1"))     # כמה פריימים רצופים של ירידה צריך
+# Filter tiny/huge boxes (normalized area)
+MIN_BOX_AREA   = float(os.getenv("MIN_BOX_AREA", "0.0015"))
+MAX_BOX_AREA   = float(os.getenv("MAX_BOX_AREA", "0.70"))
 
-# Filter boxes (normalized area)
-MIN_BOX_AREA    = float(os.getenv("MIN_BOX_AREA", "0.002"))
-MAX_BOX_AREA    = float(os.getenv("MAX_BOX_AREA", "0.70"))
+# Matching params (only used to find "where he disappeared" AFTER counter drop)
+MATCH_IOU_MIN    = float(os.getenv("MATCH_IOU_MIN", "0.08"))
+MATCH_CENTER_MAX = float(os.getenv("MATCH_CENTER_MAX", "0.12"))
 
-# Matching between frames (to decide *which* box disappeared)
-MATCH_IOU_MIN   = float(os.getenv("MATCH_IOU_MIN", "0.08"))
-MATCH_CENTER_MAX= float(os.getenv("MATCH_CENTER_MAX", "0.12"))  # normalized distance
-
-# Presigned URL expiry seconds
-PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))  # 1 hour
+PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))
 
 rekognition = boto3.client("rekognition")
 s3          = boto3.client("s3")
@@ -40,98 +34,245 @@ s3          = boto3.client("s3")
 # Lambda Handler
 # =========================
 def lambda_handler(event, context):
-    prefix = FRAMES_PREFIX
+    prefix     = FRAMES_PREFIX
+    out_prefix = OUT_PREFIX
     max_frames = MAX_FRAMES
 
     if isinstance(event, dict):
-        prefix = event.get("prefix", prefix)
+        prefix     = event.get("prefix", prefix)
+        out_prefix = event.get("out_prefix", out_prefix)
         max_frames = int(event.get("max_frames", max_frames))
 
-    # 1) list frames in numeric order (1.png, 2.png, ...)
-    frame_keys = list_frames_numeric(FRAMES_BUCKET, prefix, max_frames)
+    frame_keys = list_frames_numeric(BUCKET, prefix, max_frames)
     if not frame_keys:
-        return _resp(200, {"status": "NO_FRAMES", "bucket": FRAMES_BUCKET, "prefix": prefix})
+        return _resp(200, {"status": "NO_FRAMES", "bucket": BUCKET, "prefix": prefix})
 
-    # 2) iterate frames + detect count drop
-    alerts = []
-    counts = []
+    outputs = []
+    alerts  = []
 
-    prev_key = None
+    prev_key   = None
     prev_boxes = None
     prev_count = None
 
-    drop_streak = 0
-    last_drop_info = None  # (missing_on_key, last_seen_key, prev_boxes, curr_boxes)
-
     for key in frame_keys:
-        boxes = detect_person_boxes(FRAMES_BUCKET, key)
-        curr_count = len(boxes)
-        counts.append({"key": key, "count": curr_count})
+        curr_boxes = detect_person_boxes(BUCKET, key)
+        curr_count = len(curr_boxes)
 
-        if prev_boxes is not None:
-            # count drop condition
-            if curr_count <= (prev_count - DROP_BY):
-                drop_streak += 1
-                last_drop_info = (key, prev_key, prev_boxes, boxes, prev_count, curr_count)
-            else:
-                drop_streak = 0
-                last_drop_info = None
+        missing_boxes = []
+        drop_by = 0
 
-            # confirm
-            if drop_streak >= CONFIRM_FRAMES and last_drop_info is not None:
-                missing_on_key, last_seen_key, last_seen_boxes, curr_boxes, pc, cc = last_drop_info
+        # ONLY use COUNTER to decide disappearance
+        if prev_count is not None and curr_count < prev_count:
+            drop_by = prev_count - curr_count
 
-                # find which boxes from last_seen are missing now
-                missing_prev_idxs = find_missing(last_seen_boxes, curr_boxes)
+            # Now locate where the disappeared person(s) were last seen:
+            # find boxes from prev that don't match anything in current
+            missing_boxes = find_missing_boxes(prev_boxes, curr_boxes)
 
-                # create warning image ONLY now
-                # If multiple missing, generate one warning per missing box (or bundle them)
-                # We'll bundle all missing boxes in one image to reduce S3 spam.
-                missing_boxes = [last_seen_boxes[i] for i in missing_prev_idxs]
+            # If we have more unmatched than drop_by, keep the most "likely missing":
+            # choose the ones with worst match score (no/low IoU and far distance)
+            missing_boxes = pick_top_missing(prev_boxes, curr_boxes, missing_boxes, drop_by)
 
-                warning_key = f"{OUT_PREFIX}{_basename(last_seen_key)}_WARNING.png"
-                warning_url = create_warning_image(
-                    src_bucket=FRAMES_BUCKET,
-                    src_key=last_seen_key,
-                    out_bucket=FRAMES_BUCKET,
-                    out_key=warning_key,
-                    all_boxes=last_seen_boxes,
-                    missing_boxes=missing_boxes,
-                    title=f"WARNING: count drop | last_seen={last_seen_key} -> missing_on={missing_on_key} | {pc}->{cc}"
-                )
+            alerts.append({
+                "frame_now": key,
+                "prev_frame": prev_key,
+                "prev_count": prev_count,
+                "curr_count": curr_count,
+                "drop_by": drop_by,
+                "missing_boxes_last_seen": missing_boxes
+            })
 
-                alerts.append({
-                    "missing_detected_on_frame": missing_on_key,
-                    "last_seen_frame": last_seen_key,
-                    "prev_count": pc,
-                    "curr_count": cc,
-                    "missing_count_estimated": len(missing_boxes),
-                    "missing_boxes_last_seen": missing_boxes,
-                    "warning_image_key": warning_key,
-                    "warning_image_url": warning_url,
-                })
+        title = (
+            f"Frame: {key} | count={curr_count}"
+            + (f" | DROP_BY={drop_by}" if drop_by > 0 else "")
+        )
 
-                # after alert, reset streak so we don't spam every next frame
-                drop_streak = 0
-                last_drop_info = None
+        out_key = f"{out_prefix}{_basename(key)}_ANNOT.png"
+        out_url = create_annotated_image(
+            src_bucket=BUCKET,
+            src_key=key,
+            out_bucket=BUCKET,
+            out_key=out_key,
+            curr_boxes=curr_boxes,       # GREEN
+            missing_boxes=missing_boxes, # RED (from prev, only if counter dropped)
+            title=title
+        )
 
+        outputs.append({
+            "frame": key,
+            "out_key": out_key,
+            "out_url": out_url,
+            "count": curr_count,
+            "drop_by": drop_by,
+            "missing_count": len(missing_boxes)
+        })
+
+        # advance
         prev_key = key
-        prev_boxes = boxes
+        prev_boxes = curr_boxes
         prev_count = curr_count
 
     return _resp(200, {
-        "status": "WARNINGS_CREATED" if alerts else "NO_ALERT",
-        "drop_by": DROP_BY,
-        "confirm_frames": CONFIRM_FRAMES,
+        "status": "ANNOTATED_WITH_COUNTER_DROP",
+        "bucket": BUCKET,
+        "frames_prefix": prefix,
+        "out_prefix": out_prefix,
         "total_frames": len(frame_keys),
+        "outputs_count": len(outputs),
+        "outputs": outputs,
         "alerts_count": len(alerts),
-        "alerts": alerts,
-        "counts": counts
+        "alerts": alerts
     })
 
 
 # =========================
-# S3 listing in numeric order
+# Rekognition detection
+# =========================
+def detect_person_boxes(bucket, key):
+    try:
+        res = rekognition.detect_labels(
+            Image={"S3Object": {"Bucket": bucket, "Name": key}},
+            MaxLabels=25,
+            MinConfidence=MIN_CONFIDENCE
+        )
+
+        boxes = []
+        for label in res.get("Labels", []):
+            if label.get("Name") != "Person":
+                continue
+
+            for inst in label.get("Instances", []):
+                box = inst.get("BoundingBox", {})
+                w = float(box.get("Width", 0))
+                h = float(box.get("Height", 0))
+                area = w * h
+
+                if area < MIN_BOX_AREA:
+                    continue
+                if area > MAX_BOX_AREA:
+                    continue
+
+                boxes.append({
+                    "Left": float(box.get("Left", 0)),
+                    "Top": float(box.get("Top", 0)),
+                    "Width": w,
+                    "Height": h
+                })
+
+        return boxes
+
+    except Exception as e:
+        print(f"[ERROR] detect_person_boxes failed for {key}: {str(e)}")
+        return []
+
+
+# =========================
+# Missing boxes ONLY when counter dropped
+# =========================
+def find_missing_boxes(prev_boxes, curr_boxes):
+    if not prev_boxes:
+        return []
+    if not curr_boxes:
+        # everything missing
+        return prev_boxes[:]
+
+    missing = []
+    for pb in prev_boxes:
+        best_iou = 0.0
+        best_dist = 999.0
+        pc = _center(pb)
+
+        for cb in curr_boxes:
+            iou = _iou(pb, cb)
+            dist = _dist(pc, _center(cb))
+            if iou > best_iou:
+                best_iou = iou
+            if dist < best_dist:
+                best_dist = dist
+
+        matched = (best_iou >= MATCH_IOU_MIN) or (best_dist <= MATCH_CENTER_MAX)
+        if not matched:
+            missing.append(pb)
+
+    return missing
+
+
+def pick_top_missing(prev_boxes, curr_boxes, missing_candidates, drop_by):
+    """
+    If counter dropped by K, we only want K missing boxes (last seen).
+    When there are multiple unmatched boxes (noise), pick the ones with the WORST match score.
+    """
+    if drop_by <= 0:
+        return []
+    if len(missing_candidates) <= drop_by:
+        return missing_candidates
+
+    scored = []
+    for pb in missing_candidates:
+        best_iou = 0.0
+        best_dist = 999.0
+        pc = _center(pb)
+
+        for cb in curr_boxes:
+            iou = _iou(pb, cb)
+            dist = _dist(pc, _center(cb))
+            if iou > best_iou:
+                best_iou = iou
+            if dist < best_dist:
+                best_dist = dist
+
+        # worse = low iou and high dist
+        score = (1.0 - best_iou) + best_dist
+        scored.append((score, pb))
+
+    scored.sort(reverse=True, key=lambda x: x[0])  # worst first
+    return [pb for _, pb in scored[:drop_by]]
+
+
+# =========================
+# Annotate and save image
+# =========================
+def create_annotated_image(src_bucket, src_key, out_bucket, out_key, curr_boxes, missing_boxes, title):
+    img_bytes = s3.get_object(Bucket=src_bucket, Key=src_key)["Body"].read()
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    W, H = img.size
+
+    # Title bar
+    draw.rectangle([0, 0, W, 52], fill=(0, 0, 0))
+    draw.text((12, 16), title, fill=(255, 255, 255))
+
+    # GREEN: current detections
+    for b in curr_boxes:
+        x1, y1, x2, y2 = _px(b, W, H)
+        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=4)
+
+    # RED: missing (last seen from previous frame), ONLY when counter dropped
+    for mb in missing_boxes:
+        x1, y1, x2, y2 = _px(mb, W, H)
+        draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=7)
+        draw.text((x1 + 6, max(56, y1 - 16)), "MISSING (COUNTER DROP)", fill=(255, 0, 0))
+
+    out_buf = io.BytesIO()
+    img.save(out_buf, format="PNG")
+    out_buf.seek(0)
+
+    s3.put_object(
+        Bucket=out_bucket,
+        Key=out_key,
+        Body=out_buf.getvalue(),
+        ContentType="image/png"
+    )
+
+    return s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": out_bucket, "Key": out_key},
+        ExpiresIn=PRESIGN_EXPIRES
+    )
+
+
+# =========================
+# List frames numeric order (1.png,2.png,...)
 # =========================
 def list_frames_numeric(bucket, prefix, max_frames):
     paginator = s3.get_paginator("list_objects_v2")
@@ -144,13 +285,12 @@ def list_frames_numeric(bucket, prefix, max_frames):
             if key.endswith("/") or not _is_image_key(key):
                 continue
 
-            filename = key.split("/")[-1]
-            m = re.match(r"^(\d+)\.(png|jpg|jpeg|webp)$", filename.lower())
+            filename = key.split("/")[-1].lower()
+            m = re.match(r"^(\d+)\.(png|jpg|jpeg|webp)$", filename)
             if not m:
                 continue
 
-            frame_num = int(m.group(1))
-            frames.append((frame_num, key))
+            frames.append((int(m.group(1)), key))
 
     frames.sort(key=lambda x: x[0])
     keys = [k for _, k in frames]
@@ -168,74 +308,20 @@ def _basename(key: str) -> str:
 
 
 # =========================
-# Rekognition detection
+# Geometry helpers
 # =========================
-def detect_person_boxes(bucket, key):
-    try:
-        res = rekognition.detect_labels(
-            Image={"S3Object": {"Bucket": bucket, "Name": key}},
-            MaxLabels=25,
-            MinConfidence=MIN_CONFIDENCE
-        )
-
-        boxes = []
-        for label in res.get("Labels", []):
-            if label.get("Name") == "Person":
-                for inst in label.get("Instances", []):
-                    box = inst.get("BoundingBox", {})
-                    w = float(box.get("Width", 0))
-                    h = float(box.get("Height", 0))
-                    area = w * h
-
-                    if area < MIN_BOX_AREA:
-                        continue
-                    if area > MAX_BOX_AREA:
-                        continue
-
-                    boxes.append({
-                        "Left": float(box.get("Left", 0)),
-                        "Top": float(box.get("Top", 0)),
-                        "Width": w,
-                        "Height": h
-                    })
-
-        return boxes
-
-    except Exception as e:
-        print(f"[ERROR] detect_person_boxes failed for {key}: {str(e)}")
-        return []
-
-
-# =========================
-# Missing logic: match prev boxes to curr boxes
-# =========================
-def find_missing(prev_boxes, curr_boxes):
-    missing = []
-    for i, pb in enumerate(prev_boxes):
-        best_iou = 0.0
-        best_center = 999.0
-
-        pc = _center(pb)
-        for cb in curr_boxes:
-            iou = _iou(pb, cb)
-            cc = _center(cb)
-            dist = _dist(pc, cc)
-            if iou > best_iou:
-                best_iou = iou
-            if dist < best_center:
-                best_center = dist
-
-        matched = (best_iou >= MATCH_IOU_MIN) or (best_center <= MATCH_CENTER_MAX)
-        if not matched:
-            missing.append(i)
-
-    return missing
+def _px(box, W, H):
+    x1 = int(box["Left"] * W)
+    y1 = int(box["Top"] * H)
+    x2 = int((box["Left"] + box["Width"]) * W)
+    y2 = int((box["Top"] + box["Height"]) * H)
+    return x1, y1, x2, y2
 
 def _center(b):
-    return (b["Left"] + b["Width"]/2.0, b["Top"] + b["Height"]/2.0)
+    return (b["Left"] + b["Width"] / 2.0, b["Top"] + b["Height"] / 2.0)
 
 def _dist(p1, p2):
-    return math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
+    return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
 def _iou(a, b):
     ax1, ay1 = a["Left"], a["Top"]
@@ -260,55 +346,6 @@ def _iou(a, b):
     if denom <= 0:
         return 0.0
     return inter_area / denom
-
-
-# =========================
-# Create warning image (only when drop happens)
-# =========================
-def create_warning_image(src_bucket, src_key, out_bucket, out_key, all_boxes, missing_boxes, title):
-    img_bytes = s3.get_object(Bucket=src_bucket, Key=src_key)["Body"].read()
-    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    draw = ImageDraw.Draw(img)
-    W, H = img.size
-
-    # title bar
-    draw.rectangle([0, 0, W, 44], fill=(0, 0, 0))
-    draw.text((10, 12), title, fill=(255, 255, 255))
-
-    # draw all people in green
-    for b in all_boxes:
-        x1, y1, x2, y2 = _px(b, W, H)
-        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=4)
-
-    # highlight missing in red + label
-    for mb in missing_boxes:
-        x1, y1, x2, y2 = _px(mb, W, H)
-        draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=6)
-        draw.text((x1 + 4, y2 + 4), "LAST SEEN", fill=(255, 0, 0))
-
-    out_buf = io.BytesIO()
-    img.save(out_buf, format="PNG")
-    out_buf.seek(0)
-
-    s3.put_object(
-        Bucket=out_bucket,
-        Key=out_key,
-        Body=out_buf.getvalue(),
-        ContentType="image/png"
-    )
-
-    return s3.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": out_bucket, "Key": out_key},
-        ExpiresIn=PRESIGN_EXPIRES
-    )
-
-def _px(box, W, H):
-    x1 = int(box["Left"] * W)
-    y1 = int(box["Top"] * H)
-    x2 = int((box["Left"] + box["Width"]) * W)
-    y2 = int((box["Top"] + box["Height"]) * H)
-    return x1, y1, x2, y2
 
 
 # =========================
