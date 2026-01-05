@@ -6,7 +6,11 @@
     <title>LifeShot System</title>
     <link rel="stylesheet" href="style.css" />
   </head>
+
   <body>
+    <!-- ===============================
+         LOGIN
+    ================================ -->
     <div id="login-screen" class="auth-body">
       <div class="auth-card">
         <div class="logo-main">📷</div>
@@ -14,6 +18,7 @@
         <p style="color: #64748b; margin-bottom: 30px">
           Drowning Detection System
         </p>
+
         <div style="text-align: left">
           <label class="label-text">Username</label>
           <input
@@ -22,6 +27,7 @@
             class="input-field"
             placeholder="Enter username (guard/admin)"
           />
+
           <label class="label-text">Password</label>
           <input
             type="password"
@@ -29,9 +35,11 @@
             placeholder="Enter password"
           />
         </div>
+
         <button type="button" class="btn-blue" onclick="handleLogin()">
           Log In
         </button>
+
         <p class="auth-footer">
           Don't have an account?
           <a href="#" onclick="showScreen('signup-screen')">Sign up here</a>
@@ -39,20 +47,26 @@
       </div>
     </div>
 
+    <!-- ===============================
+         SIGNUP
+    ================================ -->
     <div id="signup-screen" class="auth-body hidden">
       <div class="auth-card">
         <div class="logo-main">📷</div>
         <h1 style="color: #2563eb; margin-bottom: 5px">LifeShot</h1>
         <p style="color: #64748b; margin-bottom: 25px">Create your account</p>
+
         <div style="text-align: left">
           <label class="label-text">Username</label>
           <input type="text" class="input-field" placeholder="Enter username" />
+
           <label class="label-text">Email</label>
           <input
             type="email"
             class="input-field"
             placeholder="jane@lifeshot.io"
           />
+
           <div style="display: flex; gap: 10px">
             <div style="flex: 1">
               <label class="label-text">Password</label>
@@ -72,6 +86,7 @@
             </div>
           </div>
         </div>
+
         <button
           type="button"
           class="btn-blue"
@@ -79,6 +94,7 @@
         >
           Create Account
         </button>
+
         <p class="auth-footer">
           Already have an account?
           <a href="#" onclick="showScreen('login-screen')">Back to Login</a>
@@ -86,6 +102,9 @@
       </div>
     </div>
 
+    <!-- ===============================
+         LIFEGUARD DASHBOARD
+    ================================ -->
     <div id="lifeguard-dashboard" class="wrapper hidden">
       <header class="header-card">
         <div style="display: flex; align-items: center; gap: 12px">
@@ -108,6 +127,7 @@
         </div>
       </div>
 
+      <!-- ===== Emergency Overlay ===== -->
       <div id="emergency-overlay" class="emergency-container hidden">
         <div style="display: flex; gap: 12px; margin-bottom: 15px">
           <span id="alert-icon" style="font-size: 24px">🚨</span>
@@ -116,6 +136,52 @@
             <p style="margin: 0; font-size: 12px; opacity: 0.8">
               Critical danger detected - immediate response required
             </p>
+          </div>
+        </div>
+
+        <!-- ✅ BEFORE/AFTER Carousel (replaces drowning-image) -->
+        <div id="before-after-carousel" style="display: none; width: 100%; margin-top: 10px;">
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 8px;
+            "
+          >
+            <strong id="carousel-title" style="font-size: 12px; opacity: 0.9"
+              >BEFORE</strong
+            >
+            <div style="display: flex; gap: 8px">
+              <button id="carousel-prev-btn" class="btn-filter" type="button">
+                ◀
+              </button>
+              <button id="carousel-next-btn" class="btn-filter" type="button">
+                ▶
+              </button>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 10px; width: 100%">
+            <div style="flex: 1">
+              <div style="font-size: 10px; opacity: 0.8; margin-bottom: 6px">
+                BEFORE
+              </div>
+              <img
+                id="img-before"
+                style="width: 100%; border-radius: 12px; display: none"
+              />
+            </div>
+
+            <div style="flex: 1">
+              <div style="font-size: 10px; opacity: 0.8; margin-bottom: 6px">
+                AFTER
+              </div>
+              <img
+                id="img-after"
+                style="width: 100%; border-radius: 12px; display: none"
+              />
+            </div>
           </div>
         </div>
 
@@ -128,13 +194,11 @@
                 display: block;
                 margin-bottom: 4px;
               "
-              >Precise location</span
+              >Status</span
             >
-            <strong id="display-zone" style="font-size: 14px"
-              >Zone 4 — Depth 2m</strong
-            >
+            <strong id="display-score" style="font-size: 22px">ALERT</strong>
             <div style="font-size: 9px; opacity: 0.6; margin-top: 4px">
-              Source: Rekognition / Lambda
+              Source: DynamoDB / Lambda
             </div>
           </div>
           <div
@@ -151,11 +215,11 @@
                 display: block;
                 margin-bottom: 4px;
               "
-              >Risk score</span
+              >Detection time</span
             >
-            <strong id="display-score" style="font-size: 22px">94/100</strong>
+            <strong id="display-time" style="font-size: 22px">--:--</strong>
             <div style="font-size: 9px; opacity: 0.6; margin-top: 4px">
-              Engine: LifeShot Smart Logic
+              Live polling every 3s
             </div>
           </div>
         </div>
@@ -163,14 +227,12 @@
         <div style="margin-bottom: 20px; text-align: left">
           <span style="font-size: 10px; opacity: 0.7">Detected pattern</span>
           <h4 style="margin: 5px 0; font-size: 15px">
-            Active Distress Analysis
+            Counter Drop → Possible Missing Person
           </h4>
           <p style="font-size: 12px; margin: 0; opacity: 0.8">
-            Active distress detected — abnormal movements in the same area
+            A person count drop was detected. The red box marks the last seen
+            location.
           </p>
-          <div style="font-size: 11px; margin-top: 10px">
-            Detection time: <strong id="display-time">14:32</strong>
-          </div>
         </div>
 
         <div style="display: flex; gap: 10px">
@@ -185,10 +247,13 @@
       <div class="footer-status-pills">
         <div class="status-pill"><span class="dot"></span>Rekognition</div>
         <div class="status-pill"><span class="dot"></span>Lambda</div>
-        <div class="status-pill"><span class="dot"></span>SNS</div>
+        <div class="status-pill"><span class="dot"></span>DynamoDB</div>
       </div>
     </div>
 
+    <!-- ===============================
+         MANAGER DASHBOARD
+    ================================ -->
     <div id="manager-dashboard" class="wrapper hidden">
       <div class="dashboard-wrapper">
         <header class="header-card">
@@ -199,8 +264,8 @@
                 LifeShot
               </h2>
               <span style="font-size: 11px; color: #64748b"
-                >Manager Dashboard
-              </span>
+                >Manager Dashboard</span
+              >
             </div>
           </div>
           <button class="btn-logout" onclick="logout()">Sign Out</button>
@@ -218,81 +283,26 @@
             >
               <span>Total events</span> <strong>DynamoDB</strong>
             </div>
-            <span class="metric-value" id="stat-total">5</span>
+            <span class="metric-value" id="stat-total">0</span>
             <span style="font-size: 10px; color: #94a3b8"
               >Historical dataset</span
             >
           </div>
+
           <div class="metric-card-white">
-            <div style="font-size: 10px; color: #64748b">Avg response time</div>
-            <span class="metric-value">32s</span>
+            <div style="font-size: 10px; color: #64748b">
+              Auto refresh
+            </div>
+            <span class="metric-value">3s</span>
             <span style="font-size: 10px; color: #94a3b8"
-              >AI-Driven Logic Analysis</span
+              >/events polling interval</span
             >
           </div>
         </div>
 
-        <div class="heatmap-card">
-          <h3 style="margin-top: 0; font-size: 15px; margin-bottom: 15px">
-            Heatmap — Risk Distribution
-          </h3>
-
-          <div class="zone-item zone-high">
-            <div style="font-size: 13px; font-weight: 600">
-              Zone 4
-              <p
-                style="
-                  margin: 2px 0;
-                  font-size: 11px;
-                  font-weight: normal;
-                  color: #475569;
-                "
-              >
-                15 incidents this week
-              </p>
-            </div>
-            <span class="badge-red">High</span>
-          </div>
-
-          <div class="zone-item zone-med">
-            <div style="font-size: 13px; font-weight: 600">
-              Zone 2
-              <p
-                style="
-                  margin: 2px 0;
-                  font-size: 11px;
-                  font-weight: normal;
-                  color: #475569;
-                "
-              >
-                8 incidents this week
-              </p>
-            </div>
-            <span class="badge-red" style="background: #f97316">Medium</span>
-          </div>
-
-          <div class="zone-item zone-low">
-            <div style="font-size: 13px; font-weight: 600">
-              Zone 1
-              <p
-                style="
-                  margin: 2px 0;
-                  font-size: 11px;
-                  font-weight: normal;
-                  color: #475569;
-                "
-              >
-                3 incidents this week
-              </p>
-            </div>
-            <span class="badge-red" style="background: #22c55e">Low</span>
-          </div>
-
-          <div class="manager-footer-text">
-            Real-time updates via Lambda • AI-Driven Logic Analysis
-          </div>
-        </div>
-
+        <!-- ===============================
+             ALL EVENTS TABLE (updated columns)
+        ================================ -->
         <div class="heatmap-card table-card">
           <div
             style="
@@ -306,12 +316,8 @@
               All Events
             </h3>
             <div style="display: flex; gap: 8px">
-              <button class="btn-filter" onclick="filterTable('ALL')">
-                All
-              </button>
-              <button class="btn-filter" onclick="filterTable('OPEN')">
-                Open
-              </button>
+              <button class="btn-filter" onclick="filterTable('ALL')">All</button>
+              <button class="btn-filter" onclick="filterTable('OPEN')">Open</button>
             </div>
           </div>
 
@@ -320,20 +326,48 @@
               <thead>
                 <tr>
                   <th>Event ID</th>
-                  <th>Zone</th>
-                  <th>Risk</th>
-                  <th>Type</th>
-                  <th>Camera</th>
                   <th>Status</th>
-                  <th>Date</th>
+                  <th>Created At (UTC)</th>
+                  <th>Has Warning</th>
                 </tr>
               </thead>
               <tbody id="events-table-body"></tbody>
             </table>
           </div>
         </div>
+
+        <!-- ===============================
+             DROWNING REVIEW GALLERY (Before/After)
+        ================================ -->
+        <div class="heatmap-card table-card" style="margin-top: 14px;">
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 12px;
+            "
+          >
+            <h3 style="margin: 0; font-size: 16px; color: #1e293b;">
+              Drowning Review — Before/After
+            </h3>
+            <button class="btn-filter" onclick="renderDrowningGallery(allEvents)">
+              Refresh
+            </button>
+          </div>
+
+          <div
+            id="drowning-gallery"
+            style="
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+              gap: 12px;
+            "
+          ></div>
+        </div>
       </div>
     </div>
+
     <script src="script.js"></script>
   </body>
 </html>
