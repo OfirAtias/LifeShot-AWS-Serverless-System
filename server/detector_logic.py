@@ -3,27 +3,27 @@ import json
 import os
 import time
 import re
+import io
 from datetime import datetime
-from collections import Counter
+from PIL import Image, ImageDraw
 
 # =========================
 # CONFIG
 # =========================
-SNS_TOPIC_ARN   = os.getenv("SNS_TOPIC_ARN", "arn:aws:sns:us-east-1:452845599848:LifeguardAlerts")
-EVENTS_TABLE    = os.getenv("EVENTS_TABLE", "LifeShot_Events")
-
 FRAMES_BUCKET   = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
 FRAMES_PREFIX   = os.getenv("FRAMES_PREFIX", "LifeShot/")
-CAMERA_ID       = os.getenv("CAMERA_ID", "cam-01")
+EVENTS_TABLE    = os.getenv("EVENTS_TABLE", "LifeShot_Events")
+SNS_TOPIC_ARN   = os.getenv("SNS_TOPIC_ARN")
+CAMERA_ID       = "cam-01"
 
-MIN_CONFIDENCE  = float(os.getenv("MIN_CONFIDENCE", "75"))
-MAX_FRAMES      = int(os.getenv("MAX_FRAMES", "17"))
+EXPECTED_COUNT  = int(os.getenv("EXPECTED_COUNT", "8"))
+CONFIRM_FRAMES  = int(os.getenv("CONFIRM_FRAMES", "3"))
 
-CONFIRM_FRAMES  = int(os.getenv("CONFIRM_FRAMES", "2"))   # ❗ חשוב: 3+
-EXPECTED_DROP   = 1                                      # 8 → 7
+MIN_CONFIDENCE  = 75
+MIN_BOX_AREA    = 0.005
+MAX_BOX_AREA    = 0.60
 
-MIN_BOX_AREA    = float(os.getenv("MIN_BOX_AREA", "0.005"))
-MAX_BOX_AREA    = float(os.getenv("MAX_BOX_AREA", "0.60"))
+MATCH_DIST      = 0.12  # מרחק נורמליזציה למציאת אדם זהה
 
 rekognition = boto3.client("rekognition")
 s3          = boto3.client("s3")
@@ -35,161 +35,204 @@ dynamodb    = boto3.resource("dynamodb")
 # =========================
 def lambda_handler(event, context):
 
-    keys = list_frames_numeric(FRAMES_BUCKET, FRAMES_PREFIX, MAX_FRAMES)
-    if not keys:
-        return _resp(200, "No frames found")
+    keys = list_frames_numeric(FRAMES_BUCKET, FRAMES_PREFIX)
+    if len(keys) < 2:
+        return resp("Not enough frames")
 
-    # 1) Count people in each frame
-    counts = []
+    frames = []
     for key in keys:
-        count = count_people_in_frame(FRAMES_BUCKET, key)
-        counts.append({"key": key, "count": count})
+        people = detect_people(bucket=FRAMES_BUCKET, key=key)
+        frames.append({
+            "key": key,
+            "people": people,
+            "count": len(people)
+        })
 
-    # 2) Expected baseline = most common count (mode)
-    all_counts = [c["count"] for c in counts]
-    baseline = Counter(all_counts).most_common(1)[0][0]
+    missing_streak = 0
 
-    # 3) Detect sustained missing person (8 → 7)
-    drop_streak = 0
-    alert_frame = None
+    for i in range(1, len(frames)):
+        prev = frames[i - 1]
+        curr = frames[i]
 
-    for item in counts:
-        curr = item["count"]
-
-        if curr == baseline - EXPECTED_DROP:
-            drop_streak += 1
-            alert_frame = item["key"]
+        if curr["count"] == EXPECTED_COUNT - 1:
+            missing_streak += 1
         else:
-            drop_streak = 0
-            alert_frame = None
+            missing_streak = 0
 
-        if drop_streak >= CONFIRM_FRAMES:
-            event_id = trigger_alert(
-                CAMERA_ID,
-                FRAMES_BUCKET,
-                alert_frame,
-                baseline,
-                curr,
-                counts
+        if missing_streak >= CONFIRM_FRAMES:
+            missing_person = find_missing_person(
+                prev["people"], curr["people"]
             )
 
-            return _resp(200, {
+            if not missing_person:
+                continue
+
+            alert_image_key = draw_alert_box(
+                bucket=FRAMES_BUCKET,
+                source_key=prev["key"],
+                person=missing_person
+            )
+
+            save_event(
+                frame_key=prev["key"],
+                alert_image=alert_image_key,
+                expected=EXPECTED_COUNT,
+                detected=curr["count"]
+            )
+
+            return resp({
                 "status": "ALERT_SENT",
-                "reason": "EXPECTED_PERSON_MISSING",
-                "expected_count": baseline,
-                "current_count": curr,
-                "alert_frame": alert_frame,
-                "s3_path": f"s3://{FRAMES_BUCKET}/{alert_frame}",
-                "confirmFrames": CONFIRM_FRAMES,
-                "counts": counts
+                "alert_frame": prev["key"],
+                "alert_image": f"s3://{FRAMES_BUCKET}/{alert_image_key}",
+                "expected": EXPECTED_COUNT,
+                "detected": curr["count"]
             })
 
-    return _resp(200, {
+    return resp({
         "status": "NO_ALERT",
-        "expected_count": baseline,
-        "counts": counts
+        "expected": EXPECTED_COUNT,
+        "frames": [
+            {"key": f["key"], "count": f["count"]} for f in frames
+        ]
     })
 
 # =========================
-# List frames by numeric order
+# Rekognition
 # =========================
-def list_frames_numeric(bucket, prefix, max_frames):
+def detect_people(bucket, key):
+    res = rekognition.detect_labels(
+        Image={"S3Object": {"Bucket": bucket, "Name": key}},
+        MaxLabels=20,
+        MinConfidence=MIN_CONFIDENCE
+    )
+
+    people = []
+
+    for label in res["Labels"]:
+        if label["Name"] == "Person":
+            for inst in label.get("Instances", []):
+                box = inst["BoundingBox"]
+                area = box["Width"] * box["Height"]
+
+                if not (MIN_BOX_AREA <= area <= MAX_BOX_AREA):
+                    continue
+
+                cx = box["Left"] + box["Width"] / 2
+                cy = box["Top"]  + box["Height"] / 2
+
+                people.append({
+                    "box": box,
+                    "center": (cx, cy)
+                })
+
+    return people
+
+# =========================
+# Find missing person
+# =========================
+def find_missing_person(prev_people, curr_people):
+    for p in prev_people:
+        found = False
+        for c in curr_people:
+            dx = p["center"][0] - c["center"][0]
+            dy = p["center"][1] - c["center"][1]
+            dist = (dx*dx + dy*dy) ** 0.5
+            if dist < MATCH_DIST:
+                found = True
+                break
+        if not found:
+            return p
+    return None
+
+# =========================
+# Draw alert box
+# =========================
+def draw_alert_box(bucket, source_key, person):
+    obj = s3.get_object(Bucket=bucket, Key=source_key)
+    img = Image.open(io.BytesIO(obj["Body"].read()))
+    draw = ImageDraw.Draw(img)
+
+    w, h = img.size
+    box = person["box"]
+
+    left   = box["Left"] * w
+    top    = box["Top"] * h
+    right  = left + box["Width"] * w
+    bottom = top  + box["Height"] * h
+
+    draw.rectangle([left, top, right, bottom], outline="red", width=6)
+    draw.text((left, top - 10), "LAST SEEN", fill="red")
+
+    alert_key = source_key.replace(".png", "_ALERT.png")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+
+    s3.put_object(
+        Bucket=bucket,
+        Key=alert_key,
+        Body=buf,
+        ContentType="image/png"
+    )
+
+    return alert_key
+
+# =========================
+# Save event + notify
+# =========================
+def save_event(frame_key, alert_image, expected, detected):
+    now = int(time.time())
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    event = {
+        "eventId": f"EVT-{now}",
+        "timestamp": str(now),
+        "camera_id": CAMERA_ID,
+        "status": "OPEN",
+        "frame_key": frame_key,
+        "alert_image": alert_image,
+        "expected": expected,
+        "detected": detected,
+        "created_at": now_str
+    }
+
+    dynamodb.Table(EVENTS_TABLE).put_item(Item=event)
+
+    if SNS_TOPIC_ARN:
+        sns.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Subject="🚨 LIFESHOT DROWNING ALERT",
+            Message=(
+                f"Drowning suspected\n"
+                f"Camera: {CAMERA_ID}\n"
+                f"Last seen: s3://{FRAMES_BUCKET}/{frame_key}\n"
+                f"Marked image: s3://{FRAMES_BUCKET}/{alert_image}"
+            )
+        )
+
+# =========================
+# Helpers
+# =========================
+def list_frames_numeric(bucket, prefix):
     paginator = s3.get_paginator("list_objects_v2")
     pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
 
     frames = []
-
     for page in pages:
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            if key.endswith("/") or not _is_image(key):
-                continue
-
-            filename = key.split("/")[-1]
-            match = re.match(r"(\d+)\.", filename)
-            if not match:
-                continue
-
-            frames.append((int(match.group(1)), key))
+            name = key.split("/")[-1]
+            m = re.match(r"(\d+)\.(png|jpg|jpeg)", name.lower())
+            if m:
+                frames.append((int(m.group(1)), key))
 
     frames.sort(key=lambda x: x[0])
-    frames = frames[:max_frames]
-
     return [k for (_, k) in frames]
 
-def _is_image(key):
-    k = key.lower()
-    return k.endswith(".png") or k.endswith(".jpg") or k.endswith(".jpeg")
-
-# =========================
-# Rekognition counting
-# =========================
-def count_people_in_frame(bucket, key):
-    try:
-        res = rekognition.detect_labels(
-            Image={"S3Object": {"Bucket": bucket, "Name": key}},
-            MaxLabels=20,
-            MinConfidence=MIN_CONFIDENCE
-        )
-
-        count = 0
-        for label in res.get("Labels", []):
-            if label["Name"] == "Person":
-                for inst in label.get("Instances", []):
-                    box = inst.get("BoundingBox", {})
-                    area = float(box.get("Width", 0)) * float(box.get("Height", 0))
-                    if MIN_BOX_AREA <= area <= MAX_BOX_AREA:
-                        count += 1
-
-        return count
-
-    except Exception as e:
-        print(f"ERROR on {key}: {e}")
-        return 0
-
-# =========================
-# Alert
-# =========================
-def trigger_alert(camera_id, bucket, key, baseline, curr_count, counts):
-    now_ts = int(time.time())
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    event_id = f"EVT-{camera_id}-{now_ts}"
-
-    dynamodb.Table(EVENTS_TABLE).put_item(Item={
-        "eventId": event_id,
-        "timestamp": str(now_ts),
-        "camera_id": camera_id,
-        "status": "OPEN",
-        "alert_type": "EXPECTED_COUNT_MISSING",
-        "frame_key": key,
-        "expected_count": baseline,
-        "current_count": curr_count,
-        "counts_trace": json.dumps(counts)[:3500],
-        "created_at": now_str
-    })
-
-    sns.publish(
-        TopicArn=SNS_TOPIC_ARN,
-        Subject="🚨 LIFESHOT ALERT – Missing Swimmer",
-        Message=(
-            f"Possible drowning detected\n"
-            f"Camera: {camera_id}\n"
-            f"Frame: s3://{bucket}/{key}\n"
-            f"Expected: {baseline}\n"
-            f"Detected: {curr_count}\n"
-            f"Time: {now_str}"
-        )
-    )
-
-    return event_id
-
-# =========================
-# Response helper
-# =========================
-def _resp(code, body):
+def resp(body):
     return {
-        "statusCode": code,
+        "statusCode": 200,
         "headers": {"Content-Type": "application/json"},
         "body": json.dumps(body, ensure_ascii=False)
     }
