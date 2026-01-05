@@ -2,7 +2,10 @@
 <html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>LifeShot</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -49,16 +52,8 @@
             class="input-glass"
             placeholder="jane@lifeshot.io"
           />
-          <div style="display: flex; gap: 10px">
-            <div style="flex: 1">
-              <label class="label-text">Password</label
-              ><input
-                type="password"
-                class="input-glass"
-                placeholder="••••••••"
-              />
-            </div>
-          </div>
+          <label class="label-text">Password</label>
+          <input type="password" class="input-glass" placeholder="••••••••" />
         </div>
         <button
           type="button"
@@ -74,141 +69,179 @@
       </div>
     </div>
 
-    <div id="lifeguard-dashboard" class="wrapper hidden">
-      <header class="glass-card header-layout">
-        <div style="display: flex; align-items: center; gap: 15px">
-          <div style="text-align: left">
+    <div id="lifeguard-dashboard" class="wrapper hidden full-screen-mode">
+      <div class="lifeguard-container">
+        <header class="glass-card header-layout">
+          <div class="header-left">
             <h3 class="water-logo-small">LifeShot</h3>
-            <span style="font-size: 14px; color: #cbd5e1; font-weight: 500"
-              >Lifeguard Dashboard</span
-            >
           </div>
-        </div>
-        <button class="btn-logout" onclick="logout()">Sign Out</button>
-      </header>
+          <div class="header-center">
+            <h1 class="dashboard-title">LIFEGUARD DASHBOARD</h1>
+          </div>
+          <div class="header-right">
+            <button class="btn-logout" onclick="logout()">Sign Out</button>
+          </div>
+        </header>
 
-      <div class="status-banner-red">
-        <div style="font-size: 24px">⚠️</div>
-        <strong>SYSTEM ACTIVE</strong>
-        <div style="font-size: 12px; opacity: 0.9">Analyzing Frames...</div>
-      </div>
-
-      <div id="emergency-overlay" class="emergency-glass hidden">
         <div
           style="
+            flex: 1;
             display: flex;
-            gap: 12px;
-            margin-bottom: 15px;
+            flex-direction: column;
+            overflow: hidden;
             justify-content: center;
+            padding: 0 20px;
           "
         >
-          <span id="alert-icon" style="font-size: 28px">🚨</span>
-          <div>
-            <h3 style="margin: 0; font-size: 22px">DROWNING RISK DETECTED!</h3>
-            <p style="margin: 0; font-size: 14px; opacity: 0.9">
-              Immediate response required
+          <div id="no-alerts-state" class="glass-card no-alerts-box">
+            <div class="cyan-spinner"></div>
+            <h2 style="margin: 20px 0 5px 0; font-size: 24px; font-weight: 700">
+              Scanning Live Feed
+            </h2>
+            <p style="margin: 0; color: #cbd5e1; font-size: 14px">
+              Searching for drowning risks...
             </p>
           </div>
-        </div>
 
-        <div id="before-after-carousel" style="width: 100%; margin: 15px 0">
-          <div style="display: flex; gap: 15px; width: 100%">
-            <div style="flex: 1">
+          <div id="emergency-overlay" class="emergency-glass hidden">
+            <div class="alert-navigation-header">
+              <button class="alert-nav-btn" onclick="prevAlert()">◀</button>
+              <span
+                id="alert-counter"
+                style="font-size: 13px; font-weight: 700; opacity: 0.8"
+                >Alert 1 of 1</span
+              >
+              <button class="alert-nav-btn" onclick="nextAlert()">▶</button>
+            </div>
+
+            <div
+              class="alert-top-section"
+              style="
+                display: flex;
+                gap: 10px;
+                justify-content: center;
+                align-items: center;
+              "
+            >
+              <span id="alert-icon" style="font-size: 26px">🚨</span>
+              <h3 style="margin: 0; font-size: 22px">
+                DROWNING RISK DETECTED!
+              </h3>
+            </div>
+
+            <div
+              id="before-after-carousel"
+              style="
+                display: flex;
+                justify-content: center;
+                width: 100%;
+                margin: 15px 0;
+              "
+            >
               <div
+                class="carousel-inner"
                 style="
-                  font-size: 12px;
-                  opacity: 0.8;
-                  margin-bottom: 6px;
-                  font-weight: bold;
+                  display: flex;
+                  gap: 15px;
+                  width: 100%;
+                  justify-content: center;
                 "
               >
-                BEFORE
+                <div
+                  class="alert-img-container"
+                  style="flex: 1; max-width: 45%"
+                >
+                  <div
+                    class="img-label"
+                    style="
+                      font-size: 11px;
+                      opacity: 0.8;
+                      margin-bottom: 4px;
+                      font-weight: 700;
+                      text-align: left;
+                    "
+                  >
+                    BEFORE
+                  </div>
+                  <img id="img-before" class="alert-img" />
+                </div>
+                <div
+                  class="alert-img-container"
+                  style="flex: 1; max-width: 45%"
+                >
+                  <div
+                    class="img-label"
+                    style="
+                      font-size: 11px;
+                      opacity: 0.8;
+                      margin-bottom: 4px;
+                      font-weight: 700;
+                      text-align: left;
+                    "
+                  >
+                    AFTER
+                  </div>
+                  <img
+                    id="img-after"
+                    class="alert-img"
+                    style="border: 2px solid #ff4757"
+                  />
+                </div>
               </div>
-              <img id="img-before" class="alert-img" />
             </div>
-            <div style="flex: 1">
-              <div
-                style="
-                  font-size: 12px;
-                  opacity: 0.8;
-                  margin-bottom: 6px;
-                  font-weight: bold;
-                "
-              >
-                AFTER
+
+            <div class="data-box-glass">
+              <div class="data-item">
+                <span class="label-small">Status</span>
+                <span class="value-large">ALERT</span>
               </div>
-              <img
-                id="img-after"
-                class="alert-img"
-                style="border: 2px solid #ff4757"
-              />
+              <div class="divider-vertical"></div>
+              <div class="data-item">
+                <span class="label-small">Time</span>
+                <span id="display-time" class="value-large">--:--</span>
+              </div>
+            </div>
+
+            <div
+              style="display: flex; justify-content: center; margin-top: 15px"
+            >
+              <button id="close-btn-id" class="btn-handled">
+                Handled — End Alarm
+              </button>
             </div>
           </div>
         </div>
 
-        <div class="data-box-glass">
-          <div style="flex: 1">
-            <span class="label-small">Status</span>
-            <strong id="display-score" style="font-size: 24px">ALERT</strong>
+        <div class="footer-status-pills">
+          <div class="status-pill">
+            <span class="dot-green"></span>Rekognition
           </div>
-          <div class="divider-vertical">
-            <span class="label-small">Time</span>
-            <strong id="display-time" style="font-size: 24px">--:--</strong>
-          </div>
+          <div class="status-pill"><span class="dot-green"></span>Lambda</div>
+          <div class="status-pill"><span class="dot-green"></span>DynamoDB</div>
         </div>
-
-        <div style="display: flex; justify-content: center; margin-top: 15px">
-          <button id="close-btn-id" class="btn-handled">
-            Handled — End Alarm
-          </button>
-        </div>
-      </div>
-
-      <div class="footer-status-pills">
-        <div class="status-pill"><span class="dot"></span>Rekognition</div>
-        <div class="status-pill"><span class="dot"></span>Lambda</div>
-        <div class="status-pill"><span class="dot"></span>DynamoDB</div>
       </div>
     </div>
 
-    <div id="manager-dashboard" class="wrapper hidden">
+    <div id="manager-dashboard" class="wrapper hidden full-screen-mode">
       <div class="dashboard-wrapper">
         <header class="glass-card header-layout">
-          <div style="display: flex; align-items: center; gap: 15px">
-            <div style="text-align: left">
-              <h2 class="water-logo-small">LifeShot</h2>
-              <span style="font-size: 14px; color: #e2e8f0; font-weight: 500"
-                >Manager Dashboard</span
-              >
-            </div>
+          <div class="header-left">
+            <h2 class="water-logo-small">LifeShot</h2>
           </div>
-          <button class="btn-logout" onclick="logout()">Sign Out</button>
+          <div class="header-center">
+            <h1 class="dashboard-title">MANAGER DASHBOARD</h1>
+          </div>
+          <div class="header-right">
+            <button class="btn-logout" onclick="logout()">Sign Out</button>
+          </div>
         </header>
 
         <div class="dashboard-grid">
           <div class="left-column">
-            <div
-              class="glass-card"
-              style="
-                padding: 0;
-                height: 100%;
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-              "
-            >
+            <div class="glass-card panel-container">
               <div class="gallery-header">
-                <h3
-                  style="
-                    margin: 0;
-                    font-size: 20px;
-                    color: #ffffff;
-                    font-weight: 700;
-                  "
-                >
-                  Event Log & Evidence
-                </h3>
-                <div style="display: flex; gap: 10px">
+                <h3 class="panel-title">Event Log & Evidence</h3>
+                <div style="display: flex; gap: 8px">
                   <button class="btn-filter" onclick="filterTable('ALL')">
                     All
                   </button>
@@ -226,14 +259,14 @@
 
           <div class="right-column">
             <div class="glass-card metric-card">
-              <div class="metric-header"><span>Total events</span></div>
+              <div class="metric-header"><span>Total Events</span></div>
               <span class="metric-value" id="stat-total">0</span>
-              <span class="metric-sub">Historical dataset</span>
+              <span class="metric-sub">Historical Data</span>
             </div>
             <div class="glass-card metric-card">
-              <div class="metric-header">Auto refresh</div>
-              <span class="metric-value" style="font-size: 56px">3s</span>
-              <span class="metric-sub">Polling interval</span>
+              <div class="metric-header">Auto Refresh</div>
+              <span class="metric-value" style="font-size: 48px">3s</span>
+              <span class="metric-sub">Polling Interval</span>
             </div>
           </div>
         </div>

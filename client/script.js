@@ -3,22 +3,10 @@
 // ===============================
 const API_BASE_URL = "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
 
-// ===============================
-// GLOBAL STATE
-// ===============================
 let allEvents = [];
+let activeAlertsList = [];
+let currentAlertIndex = 0;
 let alertPollTimer = null;
-
-// ===============================
-// HELPER: FIX BROKEN IMAGES
-// ===============================
-// הפונקציה הזו מוודאת שלא נשבור את הקישור של אמזון
-function getSafeUrl(url) {
-  if (!url) return "";
-  // אם הקישור כבר מכיל סימן שאלה (קישור חתום), נוסיף & במקום ?
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}cb=${Date.now()}`; // cb = cache buster
-}
 
 function normalizeStatus(s) {
   return String(s || "").toUpperCase();
@@ -28,8 +16,14 @@ function parseDateSafe(s) {
   return isNaN(d.getTime()) ? new Date(0) : d;
 }
 
+function getSafeUrl(url) {
+  if (!url) return "";
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}cb=${Date.now()}`;
+}
+
 // ===============================
-// AUTH & NAV
+// AUTH
 // ===============================
 function handleLogin() {
   const user = document.getElementById("username").value.toLowerCase();
@@ -39,7 +33,6 @@ function handleLogin() {
   } else if (user.includes("guard")) {
     showScreen("lifeguard-dashboard");
     checkLiveAlerts();
-    if (alertPollTimer) clearInterval(alertPollTimer);
     alertPollTimer = setInterval(checkLiveAlerts, 3000);
   } else {
     alert("Access Denied.");
@@ -63,7 +56,7 @@ function logout() {
 }
 
 // ===============================
-// LIFEGUARD LOGIC (THE FIX)
+// LIFEGUARD LOGIC (TOGGLE STATES)
 // ===============================
 async function checkLiveAlerts() {
   const dashboard = document.getElementById("lifeguard-dashboard");
@@ -73,49 +66,81 @@ async function checkLiveAlerts() {
     const res = await fetch(`${API_BASE_URL}/events`, { cache: "no-store" });
     const data = await res.json();
 
-    // מוצא את אירוע הטביעה הפתוח האחרון שיש לו תמונה
-    const activeAlert = data
+    activeAlertsList = data
       .filter((e) => normalizeStatus(e.status) === "OPEN" && e.warningImageUrl)
       .sort(
         (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at)
-      )[0];
+      );
 
     const overlay = document.getElementById("emergency-overlay");
-    const imgBefore = document.getElementById("img-before");
-    const imgAfter = document.getElementById("img-after");
-    const timeEl = document.getElementById("display-time");
+    const noAlertsState = document.getElementById("no-alerts-state");
 
-    if (activeAlert) {
-      // Sound
-      new Audio("https://www.soundjay.com/buttons/beep-01a.mp3")
-        .play()
-        .catch(() => {});
+    if (activeAlertsList.length > 0) {
+      // === ALERT MODE ===
+      if (noAlertsState) noAlertsState.classList.add("hidden");
+
       overlay.classList.remove("hidden");
+      overlay.classList.add("alert-card-pulse");
 
-      // Time
-      const now = new Date();
-      if (timeEl)
-        timeEl.innerText = `${String(now.getHours()).padStart(2, "0")}:${String(
-          now.getMinutes()
-        ).padStart(2, "0")}`;
+      if (currentAlertIndex >= activeAlertsList.length) currentAlertIndex = 0;
 
-      // ✅ שימוש בפונקציה המתוקנת - זה יציג את התמונות!
-      if (imgBefore && activeAlert.prevImageUrl) {
-        imgBefore.src = getSafeUrl(activeAlert.prevImageUrl);
-      }
-      if (imgAfter && activeAlert.warningImageUrl) {
-        imgAfter.src = getSafeUrl(activeAlert.warningImageUrl);
+      if (!window.alertSoundPlayed) {
+        new Audio("https://www.soundjay.com/buttons/beep-01a.mp3")
+          .play()
+          .catch(() => {});
+        window.alertSoundPlayed = true;
       }
 
-      // Close Button
-      const closeBtn = document.getElementById("close-btn-id");
-      if (closeBtn) closeBtn.onclick = () => dismissAlert(activeAlert.eventId);
+      renderCurrentAlert();
     } else {
+      // === WAITING MODE ===
+      window.alertSoundPlayed = false;
+
       overlay.classList.add("hidden");
+      overlay.classList.remove("alert-card-pulse");
+
+      if (noAlertsState) noAlertsState.classList.remove("hidden");
     }
   } catch (e) {
     console.error("Monitoring Error:", e);
   }
+}
+
+function renderCurrentAlert() {
+  if (activeAlertsList.length === 0) return;
+  const alertData = activeAlertsList[currentAlertIndex];
+
+  document.getElementById("alert-counter").innerText = `Alert ${
+    currentAlertIndex + 1
+  } of ${activeAlertsList.length}`;
+
+  const created = parseDateSafe(alertData.created_at);
+  document.getElementById("display-time").innerText = `${String(
+    created.getHours()
+  ).padStart(2, "0")}:${String(created.getMinutes()).padStart(2, "0")}`;
+
+  const imgBefore = document.getElementById("img-before");
+  const imgAfter = document.getElementById("img-after");
+
+  if (imgBefore) imgBefore.src = getSafeUrl(alertData.prevImageUrl);
+  if (imgAfter) imgAfter.src = getSafeUrl(alertData.warningImageUrl);
+
+  const closeBtn = document.getElementById("close-btn-id");
+  if (closeBtn) closeBtn.onclick = () => dismissAlert(alertData.eventId);
+}
+
+function nextAlert() {
+  if (activeAlertsList.length === 0) return;
+  currentAlertIndex++;
+  if (currentAlertIndex >= activeAlertsList.length) currentAlertIndex = 0;
+  renderCurrentAlert();
+}
+
+function prevAlert() {
+  if (activeAlertsList.length === 0) return;
+  currentAlertIndex--;
+  if (currentAlertIndex < 0) currentAlertIndex = activeAlertsList.length - 1;
+  renderCurrentAlert();
 }
 
 async function dismissAlert(eventId) {
@@ -125,7 +150,6 @@ async function dismissAlert(eventId) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ eventId }),
     });
-    document.getElementById("emergency-overlay").classList.add("hidden");
     checkLiveAlerts();
   } catch (err) {
     console.error(err);
@@ -133,14 +157,14 @@ async function dismissAlert(eventId) {
 }
 
 // ===============================
-// MANAGER LOGIC (GALLERY CARDS)
+// MANAGER LOGIC
 // ===============================
 async function fetchEvents() {
   try {
     const res = await fetch(`${API_BASE_URL}/events`, { cache: "no-store" });
     allEvents = await res.json();
     document.getElementById("stat-total").innerText = allEvents.length;
-    renderGallery(allEvents); // מפעיל את הגלריה
+    renderGallery(allEvents);
   } catch (e) {
     console.error(e);
   }
@@ -151,6 +175,19 @@ function renderGallery(data) {
   if (!container) return;
   container.innerHTML = "";
 
+  // ✅ בדיקה: אם אין אירועים, הצג הודעה מעוצבת
+  if (data.length === 0) {
+    container.innerHTML = `
+      <div class="no-events-message">
+        <div class="no-events-icon">📂</div>
+        <h3 class="no-events-title">No Events Found</h3>
+        <p class="no-events-sub">The event log is currently empty.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // מכאן זה אותו קוד רגיל שמייצר את הכרטיסים
   const sorted = [...data].sort(
     (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at)
   );
@@ -163,26 +200,17 @@ function renderGallery(data) {
     const dateStr =
       createdDate.getTime() === 0
         ? "N/A"
-        : createdDate
-            .toISOString()
-            .replace("T", " ")
-            .replace(/\.\d{3}Z$/, "");
+        : createdDate.toISOString().replace("T", " ").substring(0, 19);
 
     const beforeUrl = evt.prevImageUrl;
     const afterUrl = evt.warningImageUrl;
 
-    // יצירת כרטיס (גלריה)
     const card = document.createElement("div");
     card.className = "event-card-item";
 
     card.innerHTML = `
       <div class="card-top-row">
-         <div>
-            <span class="card-id-text">#${
-              evt.eventId ? evt.eventId.slice(-4) : "??"
-            }</span>
-            <div class="card-time-text">${dateStr} UTC</div>
-         </div>
+         <div class="card-time-text">${dateStr}</div>
          <span class="status-badge ${statusClass}">${status}</span>
       </div>
 
@@ -221,7 +249,7 @@ function filterTable(type) {
 }
 
 // ===============================
-// LIGHTBOX LOGIC
+// LIGHTBOX
 // ===============================
 function openLightbox(src) {
   const lb = document.getElementById("image-lightbox");
@@ -236,30 +264,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const lb = document.getElementById("image-lightbox");
   const img = document.getElementById("lightbox-image");
   const close = document.getElementById("lightbox-close");
-  let zoom = 1;
-
   if (close)
     close.onclick = () => {
       lb.classList.remove("active");
       setTimeout(() => (img.src = ""), 300);
     };
-
   document.body.addEventListener("click", (e) => {
     if (e.target.tagName === "IMG" && e.target.closest("#emergency-overlay")) {
       openLightbox(e.target.src);
     }
-  });
-
-  document.getElementById("zoom-in")?.addEventListener("click", () => {
-    zoom += 0.5;
-    img.style.transform = `scale(${zoom})`;
-  });
-  document.getElementById("zoom-out")?.addEventListener("click", () => {
-    if (zoom > 0.5) zoom -= 0.5;
-    img.style.transform = `scale(${zoom})`;
-  });
-  document.getElementById("zoom-reset")?.addEventListener("click", () => {
-    zoom = 1;
-    img.style.transform = `scale(${zoom})`;
   });
 });
