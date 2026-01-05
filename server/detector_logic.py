@@ -16,7 +16,7 @@ BUCKET            = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
 FRAMES_PREFIX     = os.getenv("FRAMES_PREFIX", "LifeShot/")                 # input frames
 
 TESTINGSET_PREFIX = os.getenv("TESTINGSET_PREFIX", "LifeShot/TestingSet/")  # ALL frames: green+red + OK/ALERT
-WARNING_PREFIX    = os.getenv("WARNING_PREFIX", "LifeShot/Warning/")        # ONLY ALERT frames: red only
+WARNING_PREFIX    = os.getenv("WARNING_PREFIX", "LifeShot/Warning/")        # OPTIONAL: red-only (archive)
 
 MAX_FRAMES        = int(os.getenv("MAX_FRAMES", "200"))
 MIN_CONFIDENCE    = float(os.getenv("MIN_CONFIDENCE", "70"))
@@ -41,7 +41,6 @@ rekognition = boto3.client("rekognition")
 s3          = boto3.client("s3")
 dynamodb    = boto3.resource("dynamodb")
 events_table = dynamodb.Table(EVENTS_TABLE_NAME)
-
 sns = boto3.client("sns")
 
 
@@ -62,8 +61,10 @@ def _basename(key: str) -> str:
     return name
 
 def _center(b):
-    return (float(b.get("Left", 0)) + float(b.get("Width", 0)) / 2.0,
-            float(b.get("Top", 0)) + float(b.get("Height", 0)) / 2.0)
+    return (
+        float(b.get("Left", 0)) + float(b.get("Width", 0)) / 2.0,
+        float(b.get("Top", 0)) + float(b.get("Height", 0)) / 2.0,
+    )
 
 def _dist(a, b):
     return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
@@ -109,7 +110,7 @@ def presign_get_url(bucket, key):
     except ClientError:
         return None
 
-def publish_sns_alert(event_id, created_at_iso, prev_key, warning_key, prev_url, warning_url):
+def publish_sns_alert(event_id, created_at_iso, prev_key, warn_key, prev_url, warn_url):
     if not SNS_TOPIC_ARN:
         print("[SNS] SNS_TOPIC_ARN is empty -> skipping publish")
         return
@@ -121,11 +122,13 @@ def publish_sns_alert(event_id, created_at_iso, prev_key, warning_key, prev_url,
         f"EventId: {event_id}",
         f"CreatedAt: {created_at_iso}",
         "",
+        "BEFORE (prev):",
         f"PrevImageKey: {prev_key or 'N/A'}",
-        f"WarningImageKey: {warning_key or 'N/A'}",
-        "",
         f"PrevImageUrl: {prev_url or 'N/A'}",
-        f"WarningImageUrl: {warning_url or 'N/A'}",
+        "",
+        "AFTER (alert):",
+        f"WarningImageKey: {warn_key or 'N/A'}",
+        f"WarningImageUrl: {warn_url or 'N/A'}",
         "",
         "Open your dashboard to view full details."
     ]
@@ -406,12 +409,14 @@ def lambda_handler(event, context):
         testing_key = f"{testingset_prefix}{_basename(key)}_{status_label}.png"
         testing_url = put_png_and_presign(BUCKET, testing_key, testing_png)
 
-        warning_key = None
-        warning_url = None
+        # OPTIONAL: still create red-only warning image for archive/debug
+        archive_warning_key = None
+        archive_warning_url = None
+
         created_event_id = None
 
-        # ===== Build Warning image (ONLY if ALERT) (RED ONLY) + CREATE EVENT IN DB + SNS EMAIL =====
         if is_alert:
+            # ===== Create optional Warning/ red-only image (archive) =====
             warning_title = f"ALERT | Frame: {key} | POSSIBLE DROWNING!"
             warning_png = render_png(
                 src_bucket=BUCKET,
@@ -423,18 +428,20 @@ def lambda_handler(event, context):
                 draw_red=True
             )
 
-            warning_key = f"{warning_prefix}{_basename(key)}_WARNING.png"
-            warning_url = put_png_and_presign(BUCKET, warning_key, warning_png)
+            archive_warning_key = f"{warning_prefix}{_basename(key)}_WARNING.png"
+            archive_warning_url = put_png_and_presign(BUCKET, archive_warning_key, warning_png)
 
+            # ===== Create Event in DB (IMPORTANT: warningImageKey points to TESTINGSET) =====
             created_event_id = f"EVT-{int(time.time())}-{_basename(key)}"
             created_at_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-            # Save KEYS in DB (not URLs)
             item = {
                 "eventId": created_event_id,
                 "status": "OPEN",
                 "created_at": created_at_iso,
-                "warningImageKey": warning_key,
+
+                # ✅ This is what the client should show (TestingSet ALERT image)
+                "warningImageKey": testing_key,
             }
             if prev_testing_key:
                 item["prevImageKey"] = prev_testing_key
@@ -443,20 +450,23 @@ def lambda_handler(event, context):
             try:
                 events_table.put_item(Item=item)
                 wrote_db = True
-                print(f"[DB] Event created: {created_event_id} -> prev={prev_testing_key} warn={warning_key}")
+                print(f"[DB] Event created: {created_event_id} -> prev={prev_testing_key} warning(TESTINGSET)={testing_key}")
             except Exception as e:
                 print(f"[DB ERROR] Failed to write event to DynamoDB: {str(e)}")
 
-            # SNS Email (best effort)
+            # ===== SNS Email: send BEFORE/AFTER from TESTINGSET (not Warning/) =====
             if wrote_db:
                 prev_url_for_sns = presign_get_url(BUCKET, prev_testing_key) if prev_testing_key else None
+
                 publish_sns_alert(
                     event_id=created_event_id,
                     created_at_iso=created_at_iso,
+
+                    # keys/urls of TestingSet BEFORE/AFTER:
                     prev_key=prev_testing_key,
-                    warning_key=warning_key,
+                    warn_key=testing_key,
                     prev_url=prev_url_for_sns,
-                    warning_url=warning_url
+                    warn_url=testing_url
                 )
 
         outputs.append({
@@ -469,8 +479,9 @@ def lambda_handler(event, context):
             "testing_key": testing_key,
             "testing_url": testing_url,
 
-            "warning_key": warning_key,
-            "warning_url": warning_url,
+            # archive only (optional)
+            "warning_key": archive_warning_key,
+            "warning_url": archive_warning_url,
 
             "eventId": created_event_id,
             "missing_boxes_last_seen": (active_missing_boxes if is_alert else []),

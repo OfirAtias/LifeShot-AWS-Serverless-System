@@ -50,6 +50,15 @@ def _presign_get(bucket, key):
         return None
 
 
+def _pick_first(item, keys):
+    """Return first existing non-empty key value from item."""
+    for k in keys:
+        v = item.get(k)
+        if v:
+            return v
+    return None
+
+
 def lambda_handler(event, context):
     # Resolve path + method for both REST API & HTTP API formats
     path = event.get("rawPath") or event.get("path") or ""
@@ -102,9 +111,11 @@ def lambda_handler(event, context):
 
                 # Add URLs
                 for it in items:
-                    prev_key = it.get("prevImageKey")
-                    warn_key = it.get("warningImageKey")
+                    # Prefer the new field names, but allow legacy ones too
+                    prev_key = _pick_first(it, ["prevImageKey", "prev_image_key", "prev_key"])
+                    warn_key = _pick_first(it, ["warningImageKey", "warning_image_key", "warning_key"])
 
+                    # These keys SHOULD point to TestingSet if your "create event" lambda saves them that way
                     it["prevImageUrl"] = _presign_get(IMAGES_BUCKET, prev_key)
                     it["warningImageUrl"] = _presign_get(IMAGES_BUCKET, warn_key)
 
