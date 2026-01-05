@@ -2,6 +2,7 @@ import json
 import boto3
 import os
 from decimal import Decimal
+from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 
 dynamodb = boto3.resource("dynamodb")
@@ -50,6 +51,19 @@ def _presign_get(bucket, key):
         return None
 
 
+def _pick_first(item, keys):
+    """Return first existing non-empty key value from item."""
+    for k in keys:
+        v = item.get(k)
+        if v:
+            return v
+    return None
+
+
+def _iso_utc_now():
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def lambda_handler(event, context):
     # Resolve path + method for both REST API & HTTP API formats
     path = event.get("rawPath") or event.get("path") or ""
@@ -71,7 +85,7 @@ def lambda_handler(event, context):
     if "events" in path:
         table = dynamodb.Table(EVENTS_TABLE_NAME)
 
-        # ---- PATCH: close event ----
+        # ---- PATCH: close event + save closedAt + responseSeconds ----
         if method == "PATCH":
             try:
                 body = json.loads(event.get("body", "{}") or "{}")
@@ -79,13 +93,45 @@ def lambda_handler(event, context):
                 if not event_id:
                     return _response(400, {"error": "eventId is required"})
 
+                # read existing item to calculate duration
+                get_resp = table.get_item(Key={"eventId": event_id})
+                item = get_resp.get("Item")
+
+                if not item:
+                    return _response(404, {"error": "Event not found"})
+
+                created_at = item.get("created_at")
+                closed_at = _iso_utc_now()
+
+                response_seconds = None
+                try:
+                    if created_at:
+                        # created_at format: 2026-01-05T04:12:00Z
+                        created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                        closed_dt = datetime.fromisoformat(closed_at.replace("Z", "+00:00"))
+                        response_seconds = int((closed_dt - created_dt).total_seconds())
+                except Exception:
+                    response_seconds = None
+
+                # write status + closedAt + responseSeconds
                 table.update_item(
                     Key={"eventId": event_id},
-                    UpdateExpression="set #s = :s",
+                    UpdateExpression="SET #s = :s, closedAt = :c, responseSeconds = :r",
                     ExpressionAttributeNames={"#s": "status"},
-                    ExpressionAttributeValues={":s": "CLOSED"},
+                    ExpressionAttributeValues={
+                        ":s": "CLOSED",
+                        ":c": closed_at,
+                        ":r": response_seconds if response_seconds is not None else -1
+                    },
                 )
-                return _response(200, {"message": "Closed"})
+
+                return _response(200, {
+                    "message": "Closed",
+                    "eventId": event_id,
+                    "closedAt": closed_at,
+                    "responseSeconds": response_seconds
+                })
+
             except Exception as e:
                 return _response(500, {"error": "PATCH failed", "details": str(e)})
 
@@ -100,13 +146,27 @@ def lambda_handler(event, context):
                     resp = table.scan(ExclusiveStartKey=resp["LastEvaluatedKey"])
                     items.extend(resp.get("Items", []))
 
-                # Add URLs
+                # Add URLs + (optional) ensure responseSeconds exists for closed events
                 for it in items:
-                    prev_key = it.get("prevImageKey")
-                    warn_key = it.get("warningImageKey")
+                    prev_key = _pick_first(it, ["prevImageKey", "prev_image_key", "prev_key"])
+                    warn_key = _pick_first(it, ["warningImageKey", "warning_image_key", "warning_key"])
 
                     it["prevImageUrl"] = _presign_get(IMAGES_BUCKET, prev_key)
                     it["warningImageUrl"] = _presign_get(IMAGES_BUCKET, warn_key)
+
+                    # If client wants seconds, it's best to rely on responseSeconds stored on close.
+                    # But if it's missing and we do have created_at + closedAt, compute it here too.
+                    if it.get("status", "").upper() == "CLOSED":
+                        if it.get("responseSeconds") is None:
+                            try:
+                                ca = it.get("created_at")
+                                cl = it.get("closedAt")
+                                if ca and cl:
+                                    ca_dt = datetime.fromisoformat(ca.replace("Z", "+00:00"))
+                                    cl_dt = datetime.fromisoformat(cl.replace("Z", "+00:00"))
+                                    it["responseSeconds"] = int((cl_dt - ca_dt).total_seconds())
+                            except Exception:
+                                it["responseSeconds"] = -1
 
                 return _response(200, items)
 
@@ -114,14 +174,3 @@ def lambda_handler(event, context):
                 return _response(500, {"error": "GET events failed", "details": str(e)})
 
         return _response(405, {"error": "Method not allowed"})
-
-    # =========================
-    # Default (אם אתה כבר לא צריך upload_url אפשר למחוק את החלק הזה)
-    # =========================
-    file_name = "test.jpg"
-    upload_url = s3_client.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": IMAGES_BUCKET, "Key": file_name},
-        ExpiresIn=3600,
-    )
-    return _response(200, {"upload_url": upload_url, "file_name": file_name})
