@@ -9,23 +9,24 @@ from PIL import Image, ImageDraw
 # =========================
 # ENV CONFIG
 # =========================
-BUCKET          = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
-FRAMES_PREFIX   = os.getenv("FRAMES_PREFIX", "LifeShot/")                 # input frames
-OUT_PREFIX      = os.getenv("OUT_PREFIX", "LifeShot/Annotated/")          # annotated output (all frames)
-WARNINGS_PREFIX = os.getenv("WARNINGS_PREFIX", "LifeShot/Warnings/")      # duplicate output (all frames, OK/ALERT)
+BUCKET            = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
+FRAMES_PREFIX     = os.getenv("FRAMES_PREFIX", "LifeShot/")                 # input frames
 
-MAX_FRAMES      = int(os.getenv("MAX_FRAMES", "200"))
-MIN_CONFIDENCE  = float(os.getenv("MIN_CONFIDENCE", "70"))
+TESTINGSET_PREFIX = os.getenv("TESTINGSET_PREFIX", "LifeShot/TestingSet/")  # ALL frames: green+red + OK/ALERT
+WARNING_PREFIX    = os.getenv("WARNING_PREFIX", "LifeShot/Warning/")        # ONLY ALERT frames: red only
+
+MAX_FRAMES        = int(os.getenv("MAX_FRAMES", "200"))
+MIN_CONFIDENCE    = float(os.getenv("MIN_CONFIDENCE", "70"))
 
 # Filter tiny/huge boxes (normalized area)
-MIN_BOX_AREA    = float(os.getenv("MIN_BOX_AREA", "0.0015"))
-MAX_BOX_AREA    = float(os.getenv("MAX_BOX_AREA", "0.70"))
+MIN_BOX_AREA      = float(os.getenv("MIN_BOX_AREA", "0.0015"))
+MAX_BOX_AREA      = float(os.getenv("MAX_BOX_AREA", "0.70"))
 
-# Matching params (used only to pick "where disappeared")
-MATCH_IOU_MIN    = float(os.getenv("MATCH_IOU_MIN", "0.08"))
-MATCH_CENTER_MAX = float(os.getenv("MATCH_CENTER_MAX", "0.12"))
+# Matching params (used only to pick "where disappeared" AFTER counter drop)
+MATCH_IOU_MIN      = float(os.getenv("MATCH_IOU_MIN", "0.08"))
+MATCH_CENTER_MAX   = float(os.getenv("MATCH_CENTER_MAX", "0.12"))
 
-PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))
+PRESIGN_EXPIRES    = int(os.getenv("PRESIGN_EXPIRES", "3600"))
 
 rekognition = boto3.client("rekognition")
 s3          = boto3.client("s3")
@@ -35,16 +36,16 @@ s3          = boto3.client("s3")
 # Lambda Handler
 # =========================
 def lambda_handler(event, context):
-    prefix          = FRAMES_PREFIX
-    out_prefix      = OUT_PREFIX
-    warnings_prefix = WARNINGS_PREFIX
-    max_frames      = MAX_FRAMES
+    prefix            = FRAMES_PREFIX
+    testingset_prefix = TESTINGSET_PREFIX
+    warning_prefix    = WARNING_PREFIX
+    max_frames        = MAX_FRAMES
 
     if isinstance(event, dict):
-        prefix          = event.get("prefix", prefix)
-        out_prefix      = event.get("out_prefix", out_prefix)
-        warnings_prefix = event.get("warnings_prefix", warnings_prefix)
-        max_frames      = int(event.get("max_frames", max_frames))
+        prefix            = event.get("prefix", prefix)
+        testingset_prefix = event.get("testingset_prefix", testingset_prefix)
+        warning_prefix    = event.get("warning_prefix", warning_prefix)
+        max_frames        = int(event.get("max_frames", max_frames))
 
     frame_keys = list_frames_numeric(BUCKET, prefix, max_frames)
     if not frame_keys:
@@ -57,37 +58,33 @@ def lambda_handler(event, context):
     prev_boxes = None
     prev_count = None
 
-    # ===== ACTIVE "DROWNING" STATE (based ONLY on counter) =====
-    baseline_count       = None          # count BEFORE drop
-    active_missing_boxes = []            # last-seen boxes (from baseline-1 frame)
-    active_from_prev_key = None          # where last-seen was taken from (prev frame when drop happened)
+    # ===== ACTIVE ALERT STATE (based ONLY on COUNTER baseline) =====
+    baseline_count       = None          # count BEFORE first drop
+    active_missing_boxes = []            # last-seen boxes (from prev frame when drop happened)
+    active_from_prev_key = None          # frame key where last seen box came from
 
     for key in frame_keys:
         curr_boxes = detect_person_boxes(BUCKET, key)
         curr_count = len(curr_boxes)
 
         drop_by = 0
-        new_missing_boxes = []
 
         # ===== Start/Update missing state ONLY when counter drops =====
         if prev_count is not None and curr_count < prev_count:
             drop_by = prev_count - curr_count
 
-            # set baseline when first drop happens (or if no active)
+            # baseline set only when first alert begins
             if baseline_count is None:
                 baseline_count = prev_count
 
             # locate last-seen boxes from prev frame
-            new_missing_boxes = find_missing_boxes(prev_boxes, curr_boxes)
+            missing_candidates = find_missing_boxes(prev_boxes, curr_boxes)
 
-            # FORCE: if counter dropped but none found -> choose candidates from prev_boxes anyway
-            if drop_by > 0 and (not new_missing_boxes):
-                new_missing_boxes = prev_boxes[:] if prev_boxes else []
+            # FORCE: if counter dropped but no missing found -> choose from prev_boxes anyway
+            if drop_by > 0 and (not missing_candidates):
+                missing_candidates = prev_boxes[:] if prev_boxes else []
 
-            new_missing_boxes = pick_top_missing(prev_boxes, curr_boxes, new_missing_boxes, drop_by)
-
-            # activate / extend missing boxes
-            active_missing_boxes = new_missing_boxes[:]  # for your use-case drop_by=1 typically
+            active_missing_boxes = pick_top_missing(prev_boxes, curr_boxes, missing_candidates, drop_by)
             active_from_prev_key = prev_key
 
             alerts.append({
@@ -101,40 +98,49 @@ def lambda_handler(event, context):
                 "missing_boxes_last_seen": active_missing_boxes
             })
 
-        # ===== Keep marking red in subsequent frames until counter returns to baseline =====
-        # If baseline exists and we are still below it, keep alert active.
-        # If count recovered (>= baseline), clear alert.
-        if baseline_count is not None:
-            if curr_count >= baseline_count:
-                baseline_count = None
-                active_missing_boxes = []
-                active_from_prev_key = None
+        # ===== Keep alert active while count < baseline; clear once recovered =====
+        if baseline_count is not None and curr_count >= baseline_count:
+            baseline_count = None
+            active_missing_boxes = []
+            active_from_prev_key = None
 
         is_alert = (baseline_count is not None and curr_count < baseline_count and len(active_missing_boxes) > 0)
 
-        title = build_title(
-            frame_key=key,
-            curr_count=curr_count,
-            baseline_count=baseline_count,
-            is_alert=is_alert,
-            drop_by=drop_by
-        )
+        # Label for top bar
+        status_label = "ALERT" if is_alert else "OK"
+        title = f"{status_label} | Frame: {key} | count={curr_count}" + (f" | baseline={baseline_count}" if baseline_count is not None else "")
 
-        # ===== Create ONE annotated image bytes, then save twice (Annotated + Warnings) =====
-        annotated_png = render_annotated_png(
+        # ===== Build TestingSet image (GREEN + RED) =====
+        testing_png = render_png(
             src_bucket=BUCKET,
             src_key=key,
+            title=title,
             curr_boxes=curr_boxes,
             missing_boxes=(active_missing_boxes if is_alert else []),
-            title=title,
-            missing_from_frame=active_from_prev_key
+            draw_green=True,
+            draw_red=True
         )
 
-        out_key = f"{out_prefix}{_basename(key)}_ANNOT.png"
-        warnings_key = f"{warnings_prefix}{_basename(key)}_{'ALERT' if is_alert else 'OK'}.png"
+        testing_key = f"{testingset_prefix}{_basename(key)}_{status_label}.png"
+        testing_url = put_png_and_presign(BUCKET, testing_key, testing_png)
 
-        out_url = put_png_and_presign(BUCKET, out_key, annotated_png)
-        warn_url = put_png_and_presign(BUCKET, warnings_key, annotated_png)
+        warning_key = None
+        warning_url = None
+
+        # ===== Build Warning image (ONLY if ALERT) (RED ONLY) =====
+        if is_alert:
+            warning_title = f"ALERT | Frame: {key} | POSSIBLE DROWNING!"
+            warning_png = render_png(
+                src_bucket=BUCKET,
+                src_key=key,
+                title=warning_title,
+                curr_boxes=[],  # no green
+                missing_boxes=active_missing_boxes,
+                draw_green=False,
+                draw_red=True
+            )
+            warning_key = f"{warning_prefix}{_basename(key)}_WARNING.png"
+            warning_url = put_png_and_presign(BUCKET, warning_key, warning_png)
 
         outputs.append({
             "frame": key,
@@ -143,13 +149,14 @@ def lambda_handler(event, context):
             "is_alert": is_alert,
             "drop_by": drop_by,
 
-            "annotated_out_key": out_key,
-            "annotated_out_url": out_url,
+            "testing_key": testing_key,
+            "testing_url": testing_url,
 
-            "warnings_key": warnings_key,
-            "warnings_url": warn_url,
+            "warning_key": warning_key,
+            "warning_url": warning_url,
 
-            "missing_boxes_last_seen": (active_missing_boxes if is_alert else [])
+            "missing_boxes_last_seen": (active_missing_boxes if is_alert else []),
+            "missing_from_prev_frame": active_from_prev_key
         })
 
         # advance
@@ -158,11 +165,11 @@ def lambda_handler(event, context):
         prev_count = curr_count
 
     return _resp(200, {
-        "status": "ANNOTATED_COUNTER_DROP_WITH_WARNINGS",
+        "status": "TESTINGSET_AND_WARNING_CREATED",
         "bucket": BUCKET,
         "frames_prefix": prefix,
-        "out_prefix": out_prefix,
-        "warnings_prefix": warnings_prefix,
+        "testingset_prefix": testingset_prefix,
+        "warning_prefix": warning_prefix,
         "total_frames": len(frame_keys),
         "outputs_count": len(outputs),
         "outputs": outputs,
@@ -244,9 +251,8 @@ def find_missing_boxes(prev_boxes, curr_boxes):
 
 def pick_top_missing(prev_boxes, curr_boxes, missing_candidates, drop_by):
     """
-    Counter dropped by K => we must return K boxes to mark red.
-    If we have many candidates, pick the WORST-matching ones.
-    If we have too few, return what we have (caller ensures candidates exist).
+    Counter dropped by K => return exactly K boxes to mark red (if possible).
+    If more candidates than needed, pick the WORST-matching ones.
     """
     if drop_by <= 0:
         return []
@@ -279,7 +285,7 @@ def pick_top_missing(prev_boxes, curr_boxes, missing_candidates, drop_by):
 # =========================
 # Rendering + S3 output
 # =========================
-def render_annotated_png(src_bucket, src_key, curr_boxes, missing_boxes, title, missing_from_frame):
+def render_png(src_bucket, src_key, title, curr_boxes, missing_boxes, draw_green, draw_red):
     img_bytes = s3.get_object(Bucket=src_bucket, Key=src_key)["Body"].read()
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     draw = ImageDraw.Draw(img)
@@ -289,20 +295,19 @@ def render_annotated_png(src_bucket, src_key, curr_boxes, missing_boxes, title, 
     draw.rectangle([0, 0, W, 58], fill=(0, 0, 0))
     draw.text((12, 18), title, fill=(255, 255, 255))
 
-    # GREEN: current detections
-    for b in curr_boxes:
-        x1, y1, x2, y2 = _px(b, W, H)
-        draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=4)
+    # GREEN: current detections + label PERSON
+    if draw_green:
+        for b in curr_boxes:
+            x1, y1, x2, y2 = _px(b, W, H)
+            draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=4)
+            draw.text((x1 + 6, max(62, y1 - 18)), "PERSON", fill=(0, 255, 0))
 
-    # RED: missing (last seen box)
-    if missing_boxes:
+    # RED: missing boxes + label POSSIBLE DROWNING!
+    if draw_red and missing_boxes:
         for mb in missing_boxes:
             x1, y1, x2, y2 = _px(mb, W, H)
             draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=7)
-            label = "DROWNING ALERT (COUNTER DROP)"
-            if missing_from_frame:
-                label += f" | last_seen={missing_from_frame}"
-            draw.text((x1 + 6, max(62, y1 - 18)), label, fill=(255, 0, 0))
+            draw.text((x1 + 6, max(62, y1 - 18)), "POSSIBLE DROWNING!", fill=(255, 0, 0))
 
     out_buf = io.BytesIO()
     img.save(out_buf, format="PNG")
@@ -322,19 +327,6 @@ def put_png_and_presign(bucket, key, png_bytes):
         Params={"Bucket": bucket, "Key": key},
         ExpiresIn=PRESIGN_EXPIRES
     )
-
-
-def build_title(frame_key, curr_count, baseline_count, is_alert, drop_by):
-    # Example:
-    # Frame: LifeShot/5.png | count=7 | baseline=8 | ALERT_ACTIVE | DROP_BY=0
-    t = f"Frame: {frame_key} | count={curr_count}"
-    if baseline_count is not None:
-        t += f" | baseline={baseline_count}"
-    if is_alert:
-        t += " | ALERT_ACTIVE"
-    if drop_by > 0:
-        t += f" | DROP_BY={drop_by}"
-    return t
 
 
 # =========================
