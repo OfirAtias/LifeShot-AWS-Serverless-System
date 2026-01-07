@@ -108,7 +108,7 @@
               <button class="alert-nav-btn" onclick="prevAlert()">◀</button>
               <span
                 id="alert-counter"
-                style="font-size: 13px; font-weight: 700; opacity: 0.8"
+                style="font-size: 14px; font-weight: 700; opacity: 0.9"
                 >Alert 1 of 1</span
               >
               <button class="alert-nav-btn" onclick="nextAlert()">▶</button>
@@ -118,45 +118,34 @@
               class="alert-top-section"
               style="
                 display: flex;
-                gap: 10px;
+                gap: 15px;
                 justify-content: center;
                 align-items: center;
+                margin-bottom: 5px;
               "
             >
-              <span id="alert-icon" style="font-size: 26px">🚨</span>
-              <h3 style="margin: 0; font-size: 22px">
+              <span id="alert-icon" style="font-size: 28px">🚨</span>
+              <h3
+                style="
+                  margin: 0;
+                  font-size: 22px;
+                  font-weight: 800;
+                  letter-spacing: 1px;
+                "
+              >
                 DROWNING RISK DETECTED!
               </h3>
             </div>
 
-            <div
-              id="before-after-carousel"
-              style="
-                display: flex;
-                justify-content: center;
-                width: 100%;
-                margin: 15px 0;
-              "
-            >
-              <div
-                class="carousel-inner"
-                style="
-                  display: flex;
-                  gap: 15px;
-                  width: 100%;
-                  justify-content: center;
-                "
-              >
-                <div
-                  class="alert-img-container"
-                  style="flex: 1; max-width: 45%"
-                >
+            <div id="before-after-carousel">
+              <div class="carousel-inner">
+                <div class="alert-img-container">
                   <div
                     class="img-label"
                     style="
-                      font-size: 11px;
+                      font-size: 12px;
                       opacity: 0.8;
-                      margin-bottom: 4px;
+                      margin-bottom: 6px;
                       font-weight: 700;
                       text-align: left;
                     "
@@ -165,26 +154,23 @@
                   </div>
                   <img id="img-before" class="alert-img" />
                 </div>
-                <div
-                  class="alert-img-container"
-                  style="flex: 1; max-width: 45%"
-                >
+                <div class="alert-img-container">
                   <div
                     class="img-label"
                     style="
-                      font-size: 11px;
+                      font-size: 12px;
                       opacity: 0.8;
-                      margin-bottom: 4px;
+                      margin-bottom: 6px;
                       font-weight: 700;
                       text-align: left;
                     "
                   >
-                    AFTER
+                    AFTER (RISK)
                   </div>
                   <img
                     id="img-after"
                     class="alert-img"
-                    style="border: 2px solid #ff4757"
+                    style="border: 3px solid #ff4757"
                   />
                 </div>
               </div>
@@ -195,7 +181,10 @@
                 <span class="label-small">Status</span>
                 <span class="value-large">ALERT</span>
               </div>
-              <div class="divider-vertical"></div>
+              <div
+                class="divider-vertical"
+                style="width: 1px; background: rgba(255, 255, 255, 0.2)"
+              ></div>
               <div class="data-item">
                 <span class="label-small">Time</span>
                 <span id="display-time" class="value-large">--:--</span>
@@ -203,7 +192,7 @@
             </div>
 
             <div
-              style="display: flex; justify-content: center; margin-top: 15px"
+              style="display: flex; justify-content: center; margin-top: 5px"
             >
               <button id="close-btn-id" class="btn-handled">
                 Handled — End Alarm
