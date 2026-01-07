@@ -119,7 +119,7 @@ body::before {
   align-items: center;
   justify-content: space-between;
   padding: 0 25px;
-  margin-bottom: 15px;
+  margin-bottom: 10px;
   height: 70px;
   flex-shrink: 0;
 }
@@ -164,10 +164,11 @@ body::before {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding-bottom: 15px;
+  padding-bottom: 5px;
+  overflow: hidden;
 }
 
-/* ✅ כרטיס המתנה (העיגול) */
+/* כרטיס המתנה */
 .no-alerts-box {
   flex: 1;
   display: flex;
@@ -197,24 +198,38 @@ body::before {
   }
 }
 
-/* ✅ כרטיס התראה */
+/* ✅ כרטיס התראה - תיקון גובה וגלילה */
 .emergency-glass {
-  background: rgba(127, 29, 29, 0.9);
+  background: rgba(127, 29, 29, 0.95);
   backdrop-filter: blur(30px);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 20px 40px;
+  padding: 20px 30px 15px 30px;
   border-radius: 20px;
   text-align: center;
+
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
-  margin: auto 0;
-  width: 100%;
-  max-width: 1100px;
+
+  width: 95%;
+  max-width: 1400px;
+  margin: auto;
+
+  /* שינוי: גובה מקסימלי וגלילה אוטומטית אם צריך */
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+
   align-self: center;
-  flex: 1;
-  max-height: calc(100vh - 160px);
+}
+
+/* עיצוב פס גלילה לחלונית */
+.emergency-glass::-webkit-scrollbar {
+  width: 8px;
+}
+.emergency-glass::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
 }
 
 .alert-card-pulse {
@@ -234,27 +249,99 @@ body::before {
   }
 }
 
-.alert-img {
+/* ניווט */
+.alert-navigation-header {
+  display: flex;
+  justify-content: space-between;
   width: 100%;
-  height: 100%;
-  max-height: 250px;
-  min-height: 140px;
-  object-fit: contain;
-  border-radius: 10px;
-  background: #000;
+  align-items: center;
+  margin-bottom: 5px;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+.alert-nav-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
   border: 1px solid rgba(255, 255, 255, 0.3);
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.2s;
+}
+.alert-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
+/* כותרת */
+.alert-top-section {
+  flex-shrink: 0;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* אזור התמונות - הסרת flex: 1 */
+#before-after-carousel {
+  display: flex;
+  flex-direction: column;
+  margin: 10px 0;
+  width: 100%;
+  flex-shrink: 0; /* שלא יתכווץ */
+}
+
+.carousel-inner {
+  display: flex;
+  gap: 20px;
+  width: 100%;
+  justify-content: center;
+  /* הוסר height: 100% */
+}
+
+.alert-img-container {
+  flex: 1;
+  max-width: 48%;
+  display: flex;
+  flex-direction: column;
+  /* הוסר height: 100% */
+}
+
+/* ✅ תמונות - גדולות ו-Cover */
+.alert-img {
+  width: 100%;
+  height: 450px; /* גובה קבוע וגדול */
+  object-fit: cover; /* ממלא את המסגרת, חותך אם צריך */
+  border-radius: 12px;
+  background: transparent;
+  border: none;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
+  cursor: zoom-in; /* מציין שאפשר להגדיל */
+}
+
+/* סטטוס וזמן */
 .data-box-glass {
   background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
-  padding: 10px 30px;
+  padding: 8px 30px;
   display: flex;
   gap: 40px;
-  margin: 15px 0;
+
+  margin-top: 15px;
+  margin-bottom: 10px;
+
   border: 1px solid rgba(255, 255, 255, 0.15);
   flex-shrink: 0;
+
+  width: fit-content;
+  min-width: 300px;
+  justify-content: center;
 }
+
 .label-small {
   font-size: 11px;
   text-transform: uppercase;
@@ -269,14 +356,15 @@ body::before {
   background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
   color: #b91c1c;
   border: none;
-  padding: 10px 30px;
+  padding: 12px 40px;
   border-radius: 50px;
   font-weight: 700;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
   transition: 0.2s;
   flex-shrink: 0;
+  margin-bottom: 5px;
 }
 .btn-handled:hover {
   transform: translateY(-2px);
@@ -284,33 +372,12 @@ body::before {
   background: #fff;
 }
 
-.alert-navigation-header {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  align-items: center;
-  margin-bottom: 10px;
-  padding: 0 10px;
-}
-.alert-nav-btn {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  width: 35px;
-  height: 35px;
-  border-radius: 50%;
-  font-size: 16px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
+/* ================= FOOTER ================= */
 .footer-status-pills {
   display: flex;
   justify-content: center;
   gap: 15px;
-  margin-top: 15px;
+  margin-top: 5px;
   flex-shrink: 0;
   height: 35px;
 }
@@ -407,24 +474,21 @@ body::before {
   margin-left: 5px;
 }
 
-/* ================= NO EVENTS STATE (נוסף לבקשתך) ================= */
 .no-events-message {
-  grid-column: 1 / -1; /* גורם להודעה להתפרס על כל רוחב הגריד */
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 300px; /* גובה כדי שיהיה באמצע */
-  color: rgba(255, 255, 255, 0.4); /* צבע אפרפר עדין */
+  height: 300px;
+  color: rgba(255, 255, 255, 0.4);
   text-align: center;
 }
-
 .no-events-icon {
   font-size: 48px;
   margin-bottom: 15px;
   opacity: 0.6;
 }
-
 .no-events-title {
   font-size: 18px;
   font-weight: 600;
@@ -432,13 +496,10 @@ body::before {
   color: white;
   opacity: 0.8;
 }
-
 .no-events-sub {
   font-size: 14px;
   margin: 0;
 }
-
-/* ================= END NO EVENTS STATE ================= */
 
 .events-gallery-scroll {
   flex: 1;
