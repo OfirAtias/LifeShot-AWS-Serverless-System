@@ -40,29 +40,34 @@ function handleLogin() {
 }
 
 function showScreen(id) {
+  // רשימת כל המסכים
   [
     "login-screen",
     "signup-screen",
     "lifeguard-dashboard",
     "manager-dashboard",
-    "demo-screen", // <--- החדש
+    "demo-screen",
   ].forEach((s) => {
     const el = document.getElementById(s);
     if (el) el.classList.add("hidden");
   });
 
   const target = document.getElementById(id);
-  if (target) target.classList.remove("hidden");
+  if (target) {
+    target.classList.remove("hidden");
+    // אם פתחנו את הדמו - טען את המצלמות
+    if (id === "demo-screen") {
+      renderDemoPage();
+    }
+  }
 }
-
-// ... שאר הקוד נשאר זהה ...
 
 function logout() {
   location.reload();
 }
 
 // ===============================
-// LIFEGUARD LOGIC (TOGGLE STATES)
+// LIFEGUARD LOGIC
 // ===============================
 async function checkLiveAlerts() {
   const dashboard = document.getElementById("lifeguard-dashboard");
@@ -82,9 +87,7 @@ async function checkLiveAlerts() {
     const noAlertsState = document.getElementById("no-alerts-state");
 
     if (activeAlertsList.length > 0) {
-      // === ALERT MODE ===
       if (noAlertsState) noAlertsState.classList.add("hidden");
-
       overlay.classList.remove("hidden");
       overlay.classList.add("alert-card-pulse");
 
@@ -99,12 +102,9 @@ async function checkLiveAlerts() {
 
       renderCurrentAlert();
     } else {
-      // === WAITING MODE ===
       window.alertSoundPlayed = false;
-
       overlay.classList.add("hidden");
       overlay.classList.remove("alert-card-pulse");
-
       if (noAlertsState) noAlertsState.classList.remove("hidden");
     }
   } catch (e) {
@@ -181,7 +181,6 @@ function renderGallery(data) {
   if (!container) return;
   container.innerHTML = "";
 
-  // ✅ בדיקה: אם אין אירועים, הצג הודעה מעוצבת
   if (data.length === 0) {
     container.innerHTML = `
       <div class="no-events-message">
@@ -193,7 +192,6 @@ function renderGallery(data) {
     return;
   }
 
-  // מכאן זה אותו קוד רגיל שמייצר את הכרטיסים
   const sorted = [...data].sort(
     (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at)
   );
@@ -201,13 +199,10 @@ function renderGallery(data) {
   sorted.forEach((evt) => {
     const status = normalizeStatus(evt.status || "UNKNOWN");
     const statusClass = status === "OPEN" ? "status-open" : "status-resolved";
-
-    const createdDate = parseDateSafe(evt.created_at);
-    const dateStr =
-      createdDate.getTime() === 0
-        ? "N/A"
-        : createdDate.toISOString().replace("T", " ").substring(0, 19);
-
+    const dateStr = parseDateSafe(evt.created_at)
+      .toISOString()
+      .replace("T", " ")
+      .substring(0, 19);
     const beforeUrl = evt.prevImageUrl;
     const afterUrl = evt.warningImageUrl;
 
@@ -219,7 +214,6 @@ function renderGallery(data) {
          <div class="card-time-text">${dateStr}</div>
          <span class="status-badge ${statusClass}">${status}</span>
       </div>
-
       <div class="card-images-row">
          <div class="card-img-wrap">
             <span class="card-img-label">Before</span>
@@ -243,7 +237,6 @@ function renderGallery(data) {
          </div>
       </div>
     `;
-
     container.appendChild(card);
   });
 }
@@ -252,6 +245,50 @@ function filterTable(type) {
   if (type === "ALL") renderGallery(allEvents);
   else
     renderGallery(allEvents.filter((e) => normalizeStatus(e.status) === type));
+}
+
+// ===============================
+// DEMO PAGE LOGIC (UPDATED SPLIT GRID)
+// ===============================
+
+function renderDemoPage() {
+  renderSingleCamera("demo-container-cam1", "Test1", 8);
+  renderSingleCamera("demo-container-cam2", "Test2", 12);
+}
+
+function renderSingleCamera(containerId, folderName, imageCount) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  container.innerHTML = ""; // ניקוי
+
+  // יצירת הגריד שיחזיק את התמונות אחת ליד השנייה
+  const gridDiv = document.createElement("div");
+  gridDiv.className = "multi-img-grid";
+
+  for (let i = 1; i <= imageCount; i++) {
+    // Test1 הוא רק מספר, Test2 הוא עם קידומת
+    let filename = folderName === "Test1" ? `${i}.png` : `Test2_${i}.png`;
+
+    const imgSrc = `images/${folderName}/${filename}`;
+
+    // יצירת אלמנט תמונה
+    const img = document.createElement("img");
+    img.src = imgSrc;
+    img.className = "mini-cam-img"; // קלאס שעיצבנו ב-CSS
+    img.alt = `${folderName} Event ${i}`;
+    img.onclick = function () {
+      openLightbox(this.src);
+    };
+    img.onerror = function () {
+      this.style.display = "none";
+    };
+
+    gridDiv.appendChild(img);
+  }
+
+  // הוספת הגריד לקונטיינר של המצלמה הספציפית
+  container.appendChild(gridDiv);
 }
 
 // ===============================

@@ -272,7 +272,7 @@
             <h2 class="water-logo-small">LifeShot</h2>
           </div>
           <div class="header-center">
-            <h1 class="dashboard-title">LIVE CAMERA FEED (DEMO)</h1>
+            <h1 class="dashboard-title">LIVE CAMERA FEED</h1>
           </div>
           <div class="header-right" style="gap: 10px">
             <button class="btn-nav" onclick="showScreen('manager-dashboard')">
@@ -282,27 +282,15 @@
           </div>
         </header>
 
-        <div class="demo-cameras-container">
-          <div class="glass-card camera-box">
-            <div class="cam-header">
-              <span class="rec-dot"></span> LIVE - CAM 01
-            </div>
-            <img
-              src="https://via.placeholder.com/800x600?text=Camera+01+Feed"
-              class="cam-feed-img"
-              alt="Cam 1"
-            />
+        <div class="demo-split-view">
+          <div class="demo-col">
+            <h3 class="demo-col-title">CAM 01</h3>
+            <div id="demo-container-cam1"></div>
           </div>
 
-          <div class="glass-card camera-box">
-            <div class="cam-header">
-              <span class="rec-dot"></span> LIVE - CAM 02
-            </div>
-            <img
-              src="https://via.placeholder.com/800x600?text=Camera+02+Feed"
-              class="cam-feed-img"
-              alt="Cam 2"
-            />
+          <div class="demo-col">
+            <h3 class="demo-col-title">CAM 02</h3>
+            <div id="demo-container-cam2"></div>
           </div>
         </div>
       </div>

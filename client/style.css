@@ -14,7 +14,8 @@
 
 body {
   font-family: "Segoe UI", sans-serif;
-  background-image: url("Background.jpg");
+  /* 👇 השינוי כאן: הוספתי images/ לפני שם הקובץ */
+  background-image: url("images/Background.jpg");
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
@@ -658,23 +659,42 @@ body::before {
   transform: translateY(-1px);
 }
 
-/* מיכל המצלמות */
+/* מיכל המצלמות - מעבר ל-GRID */
 .demo-cameras-container {
   flex: 1;
-  display: flex;
+  display: grid; /* שינוי לרשת */
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(400px, 1fr)
+  ); /* מסדר אוטומטית */
   gap: 20px;
   padding: 10px 0;
-  overflow: hidden; /* שלא יחרוג */
+  overflow-y: auto; /* מאפשר גלילה אם יש הרבה תמונות */
+  align-content: start;
 }
 
-/* קופסת מצלמה בודדת */
+/* עיצוב פס גלילה לדמו */
+.demo-cameras-container::-webkit-scrollbar {
+  width: 8px;
+}
+.demo-cameras-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+
+/* קופסת מצלמה */
 .camera-box {
-  flex: 1; /* כל מצלמה לוקחת חצי רוחב */
   display: flex;
   flex-direction: column;
   padding: 15px;
   position: relative;
   overflow: hidden;
+  height: 300px; /* גובה קבוע לכל מצלמה */
+  transition: transform 0.2s;
+}
+.camera-box:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* כותרת קטנה למצלמה */
@@ -719,4 +739,116 @@ body::before {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+/* ================= DEMO GRID UPDATE ================= */
+
+/* הכרטיס הגדול שמכיל את כל התמונות */
+.camera-feed-card {
+  padding: 20px;
+  width: 100%;
+  /* גובה אוטומטי כדי להכיל את כל התמונות */
+  height: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* הרשת הפנימית שמסדרת את התמונות אחת ליד השנייה */
+.multi-img-grid {
+  display: grid;
+  /* מסדר אוטומטית: כל תמונה מינימום 200 פיקסל, והשאר נמתח */
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+  width: 100%;
+}
+
+/* עיצוב התמונות הקטנות בדמו */
+.mini-cam-img {
+  width: 100%;
+  height: 150px; /* גובה אחיד לכולן */
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: zoom-in;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.mini-cam-img:hover {
+  transform: scale(1.05);
+  border-color: var(--cyan-400);
+  z-index: 2;
+}
+
+/* ================= DEMO SPLIT VIEW & SCROLL ================= */
+
+/* המיכל הראשי שמחזיק את שני הטורים */
+.demo-split-view {
+  display: flex;
+  gap: 20px;
+  height: calc(100vh - 100px); /* תופס את הגובה שנשאר מתחת להדר */
+  padding: 20px;
+  overflow: hidden; /* מונע גלילה ראשית */
+}
+
+/* עיצוב עמודה בודדת (מצלמה) */
+.demo-col {
+  flex: 1; /* כל עמודה לוקחת חצי רוחב */
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.2); /* רקע כהה עדין להפרדה */
+  border-radius: 16px;
+  padding: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  /* גלילה פנימית לכל עמודה */
+  overflow-y: auto;
+}
+
+/* כותרת מעל כל מצלמה */
+.demo-col-title {
+  color: #a5f3fc;
+  text-transform: uppercase;
+  margin-bottom: 15px;
+  font-size: 18px;
+  font-weight: 800;
+  position: sticky;
+  top: 0;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* === עיצוב פס הגלילה (כמו בשאר האתר) === */
+.demo-col::-webkit-scrollbar {
+  width: 6px;
+}
+.demo-col::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+.demo-col::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* הרשת של התמונות בתוך כל עמודה */
+.multi-img-grid {
+  display: grid;
+  /* שתי תמונות בשורה, או יותר אם המסך רחב */
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+/* עיצוב התמונות הקטנות */
+.mini-cam-img {
+  width: 100%;
+  height: 100px; /* גובה אחיד */
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: zoom-in;
+  transition: transform 0.2s;
+}
+.mini-cam-img:hover {
+  transform: scale(1.05);
+  border-color: var(--cyan-400);
+  z-index: 5;
 }
