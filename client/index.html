@@ -220,7 +220,10 @@
           <div class="header-center">
             <h1 class="dashboard-title">MANAGER DASHBOARD</h1>
           </div>
-          <div class="header-right">
+          <div class="header-right" style="gap: 10px">
+            <button class="btn-nav" onclick="showScreen('demo-screen')">
+              Live Demo
+            </button>
             <button class="btn-logout" onclick="logout()">Sign Out</button>
           </div>
         </header>
@@ -257,6 +260,49 @@
               <span class="metric-value" style="font-size: 48px">3s</span>
               <span class="metric-sub">Polling Interval</span>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="demo-screen" class="wrapper hidden full-screen-mode">
+      <div class="dashboard-wrapper">
+        <header class="glass-card header-layout">
+          <div class="header-left">
+            <h2 class="water-logo-small">LifeShot</h2>
+          </div>
+          <div class="header-center">
+            <h1 class="dashboard-title">LIVE CAMERA FEED (DEMO)</h1>
+          </div>
+          <div class="header-right" style="gap: 10px">
+            <button class="btn-nav" onclick="showScreen('manager-dashboard')">
+              Dashboard
+            </button>
+            <button class="btn-logout" onclick="logout()">Sign Out</button>
+          </div>
+        </header>
+
+        <div class="demo-cameras-container">
+          <div class="glass-card camera-box">
+            <div class="cam-header">
+              <span class="rec-dot"></span> LIVE - CAM 01
+            </div>
+            <img
+              src="https://via.placeholder.com/800x600?text=Camera+01+Feed"
+              class="cam-feed-img"
+              alt="Cam 1"
+            />
+          </div>
+
+          <div class="glass-card camera-box">
+            <div class="cam-header">
+              <span class="rec-dot"></span> LIVE - CAM 02
+            </div>
+            <img
+              src="https://via.placeholder.com/800x600?text=Camera+02+Feed"
+              class="cam-feed-img"
+              alt="Cam 2"
+            />
           </div>
         </div>
       </div>

@@ -45,11 +45,17 @@ function showScreen(id) {
     "signup-screen",
     "lifeguard-dashboard",
     "manager-dashboard",
+    "demo-screen", // <--- החדש
   ].forEach((s) => {
-    document.getElementById(s).classList.add("hidden");
+    const el = document.getElementById(s);
+    if (el) el.classList.add("hidden");
   });
-  document.getElementById(id).classList.remove("hidden");
+
+  const target = document.getElementById(id);
+  if (target) target.classList.remove("hidden");
 }
+
+// ... שאר הקוד נשאר זהה ...
 
 function logout() {
   location.reload();
