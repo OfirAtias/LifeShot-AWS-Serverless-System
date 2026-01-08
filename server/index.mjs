@@ -8,17 +8,10 @@ import {
 // ===============================
 const REGION = process.env.COGNITO_REGION || "us-east-1";
 const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
-const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
-
-const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || ""; // empty in dev
-const COOKIE_SECURE =
-  String(process.env.COOKIE_SECURE || "false").toLowerCase() === "true";
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5500";
-const COOKIE_NAME_PREFIX = process.env.COOKIE_NAME_PREFIX || "ls";
 
 // sanity
 if (!CLIENT_ID) console.warn("Missing env COGNITO_CLIENT_ID");
-if (!USER_POOL_ID) console.warn("Missing env COGNITO_USER_POOL_ID");
 
 const cognito = new CognitoIdentityProviderClient({ region: REGION });
 
@@ -35,10 +28,11 @@ function corsHeaders(origin) {
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Vary": "Origin",
   };
 }
 
-function json(statusCode, bodyObj, origin, extraHeaders = {}, cookies = []) {
+function json(statusCode, bodyObj, origin, extraHeaders = {}) {
   return {
     statusCode,
     headers: {
@@ -46,8 +40,6 @@ function json(statusCode, bodyObj, origin, extraHeaders = {}, cookies = []) {
       ...corsHeaders(origin),
       ...extraHeaders,
     },
-    // Function URL supports multiValueHeaders for Set-Cookie
-    multiValueHeaders: cookies.length ? { "Set-Cookie": cookies } : undefined,
     body: JSON.stringify(bodyObj),
   };
 }
@@ -59,47 +51,6 @@ function parseJsonBody(event) {
   } catch {
     return {};
   }
-}
-
-function parseCookies(event) {
-  const out = {};
-
-  // Function URL often supplies event.cookies array
-  if (Array.isArray(event.cookies)) {
-    event.cookies.forEach((c) => {
-      const idx = c.indexOf("=");
-      if (idx > -1)
-        out[c.slice(0, idx).trim()] = decodeURIComponent(c.slice(idx + 1));
-    });
-    return out;
-  }
-
-  const raw = event.headers?.cookie || event.headers?.Cookie || "";
-  raw.split(";").forEach((p) => {
-    const idx = p.indexOf("=");
-    if (idx > -1)
-      out[p.slice(0, idx).trim()] = decodeURIComponent(p.slice(idx + 1));
-  });
-  return out;
-}
-
-function cookieBaseOptions() {
-  const parts = ["Path=/", "HttpOnly", "SameSite=Lax"];
-  if (COOKIE_SECURE) parts.push("Secure");
-  if (COOKIE_DOMAIN) parts.push(`Domain=${COOKIE_DOMAIN}`);
-  return parts.join("; ");
-}
-
-function setCookie(name, value, maxAgeSeconds) {
-  const base = cookieBaseOptions();
-  const maxAge = Number(maxAgeSeconds || 0);
-  const maxAgePart = maxAge ? `Max-Age=${maxAge}` : "Max-Age=0";
-  return `${name}=${encodeURIComponent(value || "")}; ${base}; ${maxAgePart}`;
-}
-
-function clearCookie(name) {
-  const base = cookieBaseOptions();
-  return `${name}=; ${base}; Max-Age=0`;
 }
 
 function decodeJwtPayload(token) {
@@ -124,12 +75,18 @@ function getRoleFromGroups(groups) {
   return "unknown";
 }
 
+function getBearerToken(event) {
+  const h = event.headers || {};
+  const auth = h.authorization || h.Authorization || "";
+  const m = String(auth).match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : "";
+}
+
 // ===============================
 // ROUTES
 // ===============================
 async function routeLogin(event, origin) {
   const body = parseJsonBody(event);
-
   const username = String(body.username || "").trim();
   const password = String(body.password || "").trim();
 
@@ -140,10 +97,7 @@ async function routeLogin(event, origin) {
   const cmd = new InitiateAuthCommand({
     AuthFlow: "USER_PASSWORD_AUTH",
     ClientId: CLIENT_ID,
-    AuthParameters: {
-      USERNAME: username,
-      PASSWORD: password,
-    },
+    AuthParameters: { USERNAME: username, PASSWORD: password },
   });
 
   try {
@@ -165,29 +119,20 @@ async function routeLogin(event, origin) {
       : [];
     const role = getRoleFromGroups(groups);
 
-    const cookies = [
-      setCookie(`${COOKIE_NAME_PREFIX}_at`, accessToken, expiresIn),
-      setCookie(`${COOKIE_NAME_PREFIX}_id`, idToken, expiresIn),
-    ];
-
-    if (refreshToken) {
-      cookies.push(
-        setCookie(`${COOKIE_NAME_PREFIX}_rt`, refreshToken, 60 * 60 * 24 * 30)
-      ); // 30d
-    }
-
     return json(
       200,
       {
         ok: true,
         role,
         username: payload["cognito:username"] || username,
+        email: payload["email"] || "",
         groups,
         expiresIn,
+        accessToken,
+        idToken,
+        refreshToken, // אופציונלי (אם לא חוזר, יהיה "")
       },
-      origin,
-      {},
-      cookies
+      origin
     );
   } catch (err) {
     const detail = err?.name || "AuthError";
@@ -196,11 +141,10 @@ async function routeLogin(event, origin) {
 }
 
 async function routeMe(event, origin) {
-  const cookies = parseCookies(event);
-  const idToken = cookies[`${COOKIE_NAME_PREFIX}_id`] || "";
-  if (!idToken) return json(401, { ok: false, message: "Not logged in" }, origin);
+  const token = getBearerToken(event); // מצפים ל-idToken או accessToken
+  if (!token) return json(401, { ok: false, message: "Missing Bearer token" }, origin);
 
-  const payload = decodeJwtPayload(idToken);
+  const payload = decodeJwtPayload(token);
   if (!payload) return json(401, { ok: false, message: "Invalid token" }, origin);
 
   const groups = Array.isArray(payload["cognito:groups"])
@@ -222,12 +166,8 @@ async function routeMe(event, origin) {
 }
 
 async function routeLogout(event, origin) {
-  const cookies = [
-    clearCookie(`${COOKIE_NAME_PREFIX}_at`),
-    clearCookie(`${COOKIE_NAME_PREFIX}_id`),
-    clearCookie(`${COOKIE_NAME_PREFIX}_rt`),
-  ];
-  return json(200, { ok: true }, origin, {}, cookies);
+  // אין cookies לנקות. הלקוח מנקה localStorage.
+  return json(200, { ok: true }, origin);
 }
 
 // ===============================
@@ -237,16 +177,11 @@ export const handler = async (event) => {
   const method = event.requestContext?.http?.method || event.httpMethod || "";
   const path =
     event.requestContext?.http?.path || event.rawPath || event.path || "";
-
   const origin = event.headers?.origin || event.headers?.Origin || "";
 
   // CORS preflight
   if (method === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: corsHeaders(origin),
-      body: "",
-    };
+    return { statusCode: 204, headers: corsHeaders(origin), body: "" };
   }
 
   if (method === "POST" && path.endsWith("/auth/login"))
