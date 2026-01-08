@@ -1,21 +1,64 @@
 // ===============================
-// CONFIG (set these to match your Cognito + API)
+// CONFIG
 // ===============================
 const API_BASE_URL =
-  window.API_BASE_URL || "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
+  window.API_BASE_URL ||
+  "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
 
-// MUST be the exact Cognito domain you created (no typos)
-const COGNITO_DOMAIN =
-  window.COGNITO_DOMAIN || "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
+const AUTH_BASE_URL =
+  window.AUTH_BASE_URL || "https://YOUR_AUTH_FUNCTION_URL.on.aws";
 
-const COGNITO_CLIENT_ID =
-  window.COGNITO_CLIENT_ID || "64l10nbtrs68ojhpe1am42dafn";
+// ===============================
+// TOKEN STORAGE (LOCALSTORAGE)
+// ===============================
+function saveTokensFromLoginResponse(data) {
+  // data: { accessToken, idToken, refreshToken, expiresIn, ... }
+  localStorage.setItem("ls_access_token", data?.accessToken || "");
+  localStorage.setItem("ls_id_token", data?.idToken || "");
+  localStorage.setItem("ls_refresh_token", data?.refreshToken || "");
+  if (data?.expiresIn) {
+    localStorage.setItem(
+      "ls_expires_at",
+      String(Date.now() + Number(data.expiresIn) * 1000)
+    );
+  } else {
+    localStorage.removeItem("ls_expires_at");
+  }
+}
 
-// IMPORTANT: For HTTP Cognito allows ONLY localhost (not 127.0.0.1) in many cases
-const COGNITO_REDIRECT_URI =
-  window.COGNITO_REDIRECT_URI || "http://localhost:5500/client/index.html";
+function clearTokens() {
+  localStorage.removeItem("ls_access_token");
+  localStorage.removeItem("ls_id_token");
+  localStorage.removeItem("ls_refresh_token");
+  localStorage.removeItem("ls_expires_at");
+}
 
-const COGNITO_SCOPES = window.COGNITO_SCOPES || "openid email";
+function getAccessToken() {
+  return localStorage.getItem("ls_access_token") || "";
+}
+
+function getIdToken() {
+  return localStorage.getItem("ls_id_token") || "";
+}
+
+function isTokenExpired() {
+  const exp = Number(localStorage.getItem("ls_expires_at") || "0");
+  if (!exp) return false; // אם אין expires, לא חוסמים
+  return Date.now() > exp - 15_000; // 15s safety window
+}
+
+// ✅ IMPORTANT: API Gateway JWT/Cognito authorizer בדרך כלל מצפה ל-ID token
+function getApiBearerToken() {
+  const idt = getIdToken();
+  if (idt) return idt;
+  return getAccessToken();
+}
+
+function authHeader() {
+  const token = getApiBearerToken();
+  if (!token || isTokenExpired()) return {};
+  return { Authorization: `Bearer ${token}` };
+}
 
 // ===============================
 // STATE
@@ -44,89 +87,56 @@ function getSafeUrl(url) {
 }
 
 // ===============================
-// TOKEN STORAGE
+// AUTH (Lambda Auth - returns tokens in JSON)
 // ===============================
-function getQueryParam(name) {
-  return new URLSearchParams(window.location.search).get(name);
-}
+async function authLogin(username, password) {
+  const res = await fetch(`${AUTH_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
 
-function saveTokens(tokens) {
-  localStorage.setItem("ls_access_token", tokens.access_token || "");
-  localStorage.setItem("ls_id_token", tokens.id_token || "");
-  localStorage.setItem("ls_refresh_token", tokens.refresh_token || "");
-  localStorage.setItem("ls_token_type", tokens.token_type || "Bearer");
-  if (tokens.expires_in) {
-    localStorage.setItem(
-      "ls_expires_at",
-      String(Date.now() + tokens.expires_in * 1000)
-    );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.message || `Login failed (${res.status})`);
   }
+  return data; // { ok, role, accessToken, idToken, ... }
 }
 
-function clearTokens() {
-  localStorage.removeItem("ls_access_token");
-  localStorage.removeItem("ls_id_token");
-  localStorage.removeItem("ls_refresh_token");
-  localStorage.removeItem("ls_token_type");
-  localStorage.removeItem("ls_expires_at");
+async function authMe() {
+  // נבדוק "מי אני" על בסיס token שנשמר
+  const idToken = getIdToken();
+  if (!idToken || isTokenExpired()) return null;
+
+  const res = await fetch(`${AUTH_BASE_URL}/auth/me`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${idToken}` },
+    cache: "no-store",
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return null;
+  return data; // { ok, role, groups, ... }
 }
 
-function getAccessToken() {
-  return localStorage.getItem("ls_access_token") || "";
+async function authLogout() {
+  await fetch(`${AUTH_BASE_URL}/auth/logout`, {
+    method: "POST",
+    cache: "no-store",
+  }).catch(() => {});
 }
 
-function isTokenExpired() {
-  const exp = Number(localStorage.getItem("ls_expires_at") || "0");
-  return !exp || Date.now() > exp - 15_000; // 15s safety window
-}
-
-// Minimal JWT payload decode (no verification - API GW verifies)
-function decodeJwtPayload(token) {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return null;
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "===".slice((base64.length + 3) % 4);
-    const json = atob(padded);
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
-
-function getUserGroupsFromToken() {
-  const idToken = localStorage.getItem("ls_id_token") || "";
-  const payload = decodeJwtPayload(idToken);
-  const groups = payload?.["cognito:groups"];
-  if (Array.isArray(groups)) return groups.map(String);
-  return [];
-}
-
-function getPrimaryRole() {
-  const groups = getUserGroupsFromToken().map((g) => g.toLowerCase());
-  // adjust names if your groups are different
-  if (groups.includes("admins") || groups.includes("admin")) return "admin";
-  if (
-    groups.includes("lifeguards") ||
-    groups.includes("guard") ||
-    groups.includes("lifeguard")
-  )
-    return "guard";
-  return "";
-}
-
-function authHeader() {
-  const token = getAccessToken();
-  if (!token) return {};
-  return { Authorization: `Bearer ${token}` };
-}
-
-// Wrapper: fetch with Authorization header + basic 401 handling
+// ===============================
+// API FETCH (adds Authorization to API Gateway)
+// ===============================
 async function apiFetch(path, options = {}) {
   const headers = {
     ...(options.headers || {}),
     ...authHeader(),
   };
+
+  // דיבאג קצר - אפשר למחוק אחרי שזה עובד
+  // console.log("API auth token prefix:", (headers.Authorization || "").slice(0, 35));
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -134,73 +144,16 @@ async function apiFetch(path, options = {}) {
     cache: "no-store",
   });
 
+  // ✅ בזמן בדיקה לא עושים logout אוטומטי - כדי שתראה מה חוזר ב-Network
   if (res.status === 401 || res.status === 403) {
-    console.warn("Auth failed, redirecting to login...");
-    logout();
+    console.warn(
+      "Unauthorized from API (check authorizer token type / issuer / audience)",
+      res.status
+    );
     throw new Error(`Unauthorized (${res.status})`);
   }
 
   return res;
-}
-
-// ===============================
-// AUTH (Cognito Hosted UI - CORRECT ENDPOINTS)
-// ===============================
-
-// Correct login/signup entry is /oauth2/authorize (NOT /login or /signup)
-function buildAuthorizeUrl({ signup = false } = {}) {
-  const url = new URL(`${COGNITO_DOMAIN}/oauth2/authorize`);
-
-  url.searchParams.set("client_id", COGNITO_CLIENT_ID);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", COGNITO_SCOPES);
-  url.searchParams.set("redirect_uri", COGNITO_REDIRECT_URI);
-
-  // show signup screen
-  if (signup) url.searchParams.set("screen_hint", "signup");
-
-  return url.toString();
-}
-
-function cognitoLogin() {
-  window.location.href = buildAuthorizeUrl({ signup: false });
-}
-
-function cognitoSignup() {
-  window.location.href = buildAuthorizeUrl({ signup: true });
-}
-
-// Exchange Authorization Code -> Tokens
-async function exchangeCodeForTokens(code) {
-  const tokenUrl = `${COGNITO_DOMAIN}/oauth2/token`;
-
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    client_id: COGNITO_CLIENT_ID,
-    code,
-    redirect_uri: COGNITO_REDIRECT_URI,
-  });
-
-  const res = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`Token exchange failed: ${res.status} ${txt}`);
-  }
-
-  return res.json();
-}
-
-function cognitoLogoutRedirect() {
-  // Cognito logout endpoint
-  const url = new URL(`${COGNITO_DOMAIN}/logout`);
-  url.searchParams.set("client_id", COGNITO_CLIENT_ID);
-  url.searchParams.set("logout_uri", COGNITO_REDIRECT_URI);
-  window.location.href = url.toString();
 }
 
 // ===============================
@@ -225,45 +178,77 @@ function showScreen(id) {
   }
 }
 
-function logout() {
-  if (alertPollTimer) clearInterval(alertPollTimer);
-  alertPollTimer = null;
+// ===============================
+// LOGIN BUTTON (YOUR FORM)
+// ===============================
+async function handleLogin() {
+  const username = (document.getElementById("username")?.value || "").trim();
+  const password = (document.getElementById("password")?.value || "").trim();
 
-  clearTokens();
+  const errEl = document.getElementById("auth-error");
+  if (errEl) errEl.classList.add("hidden");
 
-  // Logout through Cognito so Hosted UI session is cleared
-  if (COGNITO_DOMAIN && COGNITO_CLIENT_ID && COGNITO_REDIRECT_URI) {
-    cognitoLogoutRedirect();
+  if (!username || !password) {
+    if (errEl) {
+      errEl.classList.remove("hidden");
+      errEl.innerText = "Please enter username/email and password.";
+    } else {
+      alert("Please enter username/email and password.");
+    }
     return;
   }
 
-  location.reload();
+  try {
+    const me = await authLogin(username, password);
+
+    // ✅ לשמור טוקנים אחרי login
+    saveTokensFromLoginResponse(me);
+
+    routeAfterLogin(me.role);
+  } catch (e) {
+    if (errEl) {
+      errEl.classList.remove("hidden");
+      errEl.innerText = e.message || "Login failed";
+    } else {
+      alert(e.message || "Login failed");
+    }
+  }
 }
 
-function routeAfterLogin() {
-  const role = getPrimaryRole();
+function routeAfterLogin(role) {
+  const r = String(role || "").toLowerCase();
 
-  if (role === "admin") {
+  if (r === "admin") {
     showScreen("manager-dashboard");
     fetchEvents();
     return;
   }
 
-  if (role === "guard") {
+  if (r === "guard" || r === "lifeguard") {
     showScreen("lifeguard-dashboard");
     checkLiveAlerts();
     alertPollTimer = setInterval(checkLiveAlerts, 3000);
     return;
   }
 
-  // No group -> show error on login screen
-  const err = document.getElementById("auth-error");
-  if (err) {
-    err.classList.remove("hidden");
-    err.innerText =
-      "Your user has no role (cognito:groups). Add it to Admins / Lifeguards group in Cognito.";
-  }
   showScreen("login-screen");
+  const errEl = document.getElementById("auth-error");
+  if (errEl) {
+    errEl.classList.remove("hidden");
+    errEl.innerText =
+      "No role found. Add user to Admins/Lifeguards group in Cognito.";
+  }
+}
+
+async function logout() {
+  if (alertPollTimer) clearInterval(alertPollTimer);
+  alertPollTimer = null;
+
+  await authLogout();
+
+  clearTokens();
+
+  location.reload();
 }
 
 // ===============================
@@ -286,7 +271,6 @@ async function checkLiveAlerts() {
 
     if (activeAlertsList.length > 0) {
       if (noAlertsState) noAlertsState.classList.add("hidden");
-
       overlay.classList.remove("hidden");
       overlay.classList.add("alert-card-pulse");
 
@@ -302,10 +286,8 @@ async function checkLiveAlerts() {
       renderCurrentAlert();
     } else {
       window.alertSoundPlayed = false;
-
       overlay.classList.add("hidden");
       overlay.classList.remove("alert-card-pulse");
-
       if (noAlertsState) noAlertsState.classList.remove("hidden");
     }
   } catch (e) {
@@ -374,8 +356,10 @@ async function fetchEvents() {
   try {
     const res = await apiFetch(`/events`);
     allEvents = await res.json();
+
     const stat = document.getElementById("stat-total");
     if (stat) stat.innerText = Array.isArray(allEvents) ? allEvents.length : 0;
+
     renderGallery(Array.isArray(allEvents) ? allEvents : []);
   } catch (e) {
     console.error(e);
@@ -428,7 +412,9 @@ function renderGallery(data) {
             <span class="card-img-label">Before</span>
             ${
               beforeUrl
-                ? `<img src="${getSafeUrl(beforeUrl)}" class="card-img-obj" onclick="openLightbox(this.src)">`
+                ? `<img src="${getSafeUrl(
+                    beforeUrl
+                  )}" class="card-img-obj" onclick="openLightbox(this.src)">`
                 : `<div class="no-img-box">No Image</div>`
             }
          </div>
@@ -436,7 +422,9 @@ function renderGallery(data) {
             <span class="card-img-label">After</span>
             ${
               afterUrl
-                ? `<img src="${getSafeUrl(afterUrl)}" class="card-img-obj" style="border: 2px solid #ff4757;" onclick="openLightbox(this.src)">`
+                ? `<img src="${getSafeUrl(
+                    afterUrl
+                  )}" class="card-img-obj" style="border: 2px solid #ff4757;" onclick="openLightbox(this.src)">`
                 : `<div class="no-img-box">No Image</div>`
             }
          </div>
@@ -505,33 +493,6 @@ function openLightbox(src) {
 // ===============================
 // BOOTSTRAP
 // ===============================
-async function handleAuthCallbackIfNeeded() {
-  const code = getQueryParam("code");
-  if (!code) return false;
-
-  try {
-    const tokens = await exchangeCodeForTokens(code);
-    saveTokens(tokens);
-
-    // clean URL (remove ?code=...)
-    const cleanUrl = window.location.origin + window.location.pathname;
-    window.history.replaceState({}, document.title, cleanUrl);
-
-    return true;
-  } catch (e) {
-    console.error(e);
-    const err = document.getElementById("auth-error");
-    if (err) {
-      err.classList.remove("hidden");
-      err.innerText =
-        "Token exchange failed. Make sure callback URL in Cognito is EXACTLY: " +
-        COGNITO_REDIRECT_URI;
-    }
-    clearTokens();
-    return false;
-  }
-}
-
 document.addEventListener("DOMContentLoaded", async () => {
   // Lightbox wiring
   const lb = document.getElementById("image-lightbox");
@@ -550,14 +511,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // 1) if returned from Cognito with ?code=...
-  await handleAuthCallbackIfNeeded();
-
-  // 2) if token exists -> route
-  const token = getAccessToken();
-  if (token && !isTokenExpired()) {
-    routeAfterLogin();
-  } else {
+  // Auto-login if tokens exist
+  try {
+    const me = await authMe();
+    if (me?.ok) routeAfterLogin(me.role);
+    else showScreen("login-screen");
+  } catch {
     showScreen("login-screen");
   }
 });
+
+// נשאיר פונקציות כדי לא לשבור onclick ישנים אם נשארו במקרה
+function cognitoLogin() {
+  alert("Hosted UI is disabled. Use the login form.");
+}
+function cognitoSignup() {
+  alert("Signup is disabled. Remove the signup button from index.html.");
+}

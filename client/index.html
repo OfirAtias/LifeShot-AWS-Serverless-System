@@ -24,13 +24,14 @@
 
         <!-- Old username/password inputs are kept (hidden) just to not break your CSS/layout.
              You no longer log in locally from here. -->
-        <div style="text-align: left; width: 100%" class="hidden">
-          <label class="label-text">Username</label>
+        <!-- ✅ שינוי קטן: מורידים hidden כדי שתוכל לעשות login מהאתר שלך -->
+        <div style="text-align: left; width: 100%">
+          <label class="label-text">Username / Email</label>
           <input
             type="text"
             id="username"
             class="input-glass"
-            placeholder="Enter username (guard/admin)"
+            placeholder="Enter username/email"
           />
           <label class="label-text">Password</label>
           <input
@@ -41,16 +42,10 @@
           />
         </div>
 
-        <!-- ✅ Cognito Hosted UI Login -->
-        <button type="button" class="btn-water" onclick="cognitoLogin()">
+        <!-- ✅ שינוי: במקום cognitoLogin() -> handleLogin() -->
+        <button type="button" class="btn-water" onclick="handleLogin()">
           Log In
         </button>
-
-        <p class="auth-footer">
-          Don't have an account?
-          <!-- ✅ Cognito Hosted UI Signup -->
-          <a href="#" onclick="cognitoSignup(); return false;">Sign up</a>
-        </p>
 
         <p
           id="auth-error"
@@ -334,15 +329,16 @@
       window.API_BASE_URL =
         "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
 
-      // ✅ FIXED DOMAIN (NO "us-east-1-" prefix in the subdomain!)
+      // ✅ חדש: כתובת ה-Lambda Auth (Function URL)
+      window.AUTH_BASE_URL ="https://55i6njjnjfjtpodemfdpucu5z40wlfqt.lambda-url.us-east-1.on.aws";
+
+
+      // הכל נשאר כמו שהיה (לא מוחקים שום דבר)
       window.COGNITO_DOMAIN =
         "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
 
       window.COGNITO_CLIENT_ID = "64l10nbtrs68ojhpe1am42dafn";
-
-      // ✅ MUST MATCH Cognito Allowed callback URL EXACTLY (use localhost)
       window.COGNITO_REDIRECT_URI = "http://localhost:5500/client/index.html";
-
       window.COGNITO_SCOPES = "openid email";
     </script>
 
