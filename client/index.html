@@ -11,10 +11,20 @@
   </head>
 
   <body>
+    <!-- ===============================
+         AUTH (COGNITO HOSTED UI)
+         =============================== -->
     <div id="login-screen" class="auth-body">
       <div class="glass-card auth-card-size">
         <h1 class="water-logo">LifeShot</h1>
-        <div style="text-align: left; width: 100%">
+
+        <p class="subtitle-text" style="margin-top: 6px">
+          Secure sign-in powered by Amazon Cognito
+        </p>
+
+        <!-- Old username/password inputs are kept (hidden) just to not break your CSS/layout.
+             You no longer log in locally from here. -->
+        <div style="text-align: left; width: 100%" class="hidden">
           <label class="label-text">Username</label>
           <input
             type="text"
@@ -25,50 +35,57 @@
           <label class="label-text">Password</label>
           <input
             type="password"
+            id="password"
             class="input-glass"
             placeholder="Enter password"
           />
         </div>
-        <button type="button" class="btn-water" onclick="handleLogin()">
+
+        <!-- ✅ Cognito Hosted UI Login -->
+        <button type="button" class="btn-water" onclick="cognitoLogin()">
           Log In
         </button>
+
         <p class="auth-footer">
           Don't have an account?
-          <a href="#" onclick="showScreen('signup-screen')">Sign up</a>
+          <!-- ✅ Cognito Hosted UI Signup -->
+          <a href="#" onclick="cognitoSignup(); return false;">Sign up</a>
+        </p>
+
+        <p
+          id="auth-error"
+          class="auth-footer hidden"
+          style="color: #ff9aa2; margin-top: 10px"
+        >
+          Login failed. Please try again.
         </p>
       </div>
     </div>
 
+    <!-- We keep signup-screen (hidden) but Cognito Hosted UI handles it -->
     <div id="signup-screen" class="auth-body hidden">
       <div class="glass-card auth-card-size">
         <h1 class="water-logo">LifeShot</h1>
         <p class="subtitle-text">Create your account</p>
-        <div style="text-align: left; width: 100%">
-          <label class="label-text">Username</label>
-          <input type="text" class="input-glass" placeholder="Enter username" />
-          <label class="label-text">Email</label>
-          <input
-            type="email"
-            class="input-glass"
-            placeholder="jane@lifeshot.io"
-          />
-          <label class="label-text">Password</label>
-          <input type="password" class="input-glass" placeholder="••••••••" />
-        </div>
-        <button
-          type="button"
-          class="btn-water"
-          onclick="showScreen('login-screen')"
-        >
-          Create Account
+
+        <p class="auth-footer" style="margin-top: 16px; line-height: 1.6">
+          Signup is handled securely via Amazon Cognito.
+        </p>
+
+        <button type="button" class="btn-water" onclick="cognitoSignup()">
+          Continue to Sign up
         </button>
+
         <p class="auth-footer">
           Already have an account?
-          <a href="#" onclick="showScreen('login-screen')">Back to Login</a>
+          <a href="#" onclick="cognitoLogin(); return false;">Back to Login</a>
         </p>
       </div>
     </div>
 
+    <!-- ===============================
+         LIFEGUARD DASHBOARD
+         =============================== -->
     <div id="lifeguard-dashboard" class="wrapper hidden full-screen-mode">
       <div class="lifeguard-container">
         <header class="glass-card header-layout">
@@ -191,9 +208,7 @@
               </div>
             </div>
 
-            <div
-              style="display: flex; justify-content: center; margin-top: 5px"
-            >
+            <div style="display: flex; justify-content: center; margin-top: 5px">
               <button id="close-btn-id" class="btn-handled">
                 Handled — End Alarm
               </button>
@@ -211,6 +226,9 @@
       </div>
     </div>
 
+    <!-- ===============================
+         MANAGER DASHBOARD
+         =============================== -->
     <div id="manager-dashboard" class="wrapper hidden full-screen-mode">
       <div class="dashboard-wrapper">
         <header class="glass-card header-layout">
@@ -265,6 +283,9 @@
       </div>
     </div>
 
+    <!-- ===============================
+         DEMO SCREEN
+         =============================== -->
     <div id="demo-screen" class="wrapper hidden full-screen-mode">
       <div class="dashboard-wrapper">
         <header class="glass-card header-layout">
@@ -296,12 +317,34 @@
       </div>
     </div>
 
+    <!-- ===============================
+         LIGHTBOX
+         =============================== -->
     <div id="image-lightbox">
       <div id="lightbox-content">
         <button id="lightbox-close">&times;</button>
         <img id="lightbox-image" src="" alt="Zoomed Image" />
       </div>
     </div>
+
+    <!-- ===============================
+         CONFIG (used by script.js)
+         =============================== -->
+    <script>
+      window.API_BASE_URL =
+        "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
+
+      // ✅ FIXED DOMAIN (NO "us-east-1-" prefix in the subdomain!)
+      window.COGNITO_DOMAIN =
+        "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
+
+      window.COGNITO_CLIENT_ID = "64l10nbtrs68ojhpe1am42dafn";
+
+      // ✅ MUST MATCH Cognito Allowed callback URL EXACTLY (use localhost)
+      window.COGNITO_REDIRECT_URI = "http://localhost:5500/client/index.html";
+
+      window.COGNITO_SCOPES = "openid email";
+    </script>
 
     <script src="script.js"></script>
   </body>
