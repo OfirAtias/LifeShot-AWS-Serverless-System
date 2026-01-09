@@ -14,7 +14,6 @@
 
 body {
   font-family: "Segoe UI", sans-serif;
-  /* 👇 השינוי כאן: הוספתי images/ לפני שם הקובץ */
   background-image: url("images/Background.jpg");
   background-size: cover;
   background-position: center;
@@ -39,8 +38,7 @@ body::before {
 /* ================= GLOBAL & BACKGROUND ================= */
 body {
   font-family: "Segoe UI", sans-serif;
-  background-color: #0f172a; /* כחול עמוק מאוד */
-  /* מסירים את תמונת הרקע הישנה לטובת האנימציה */
+  background-color: #0f172a; 
   background-image: radial-gradient(
     circle at 50% 50%,
     #1e293b 0%,
@@ -61,7 +59,7 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  z-index: -1; /* מאחורי הכל */
+  z-index: -1; 
 }
 
 .bubble {
@@ -150,7 +148,6 @@ body {
   z-index: 10;
 }
 
-/* הכרטיס המרכזי עם הגבול הזוהר */
 .auth-card-size {
   position: relative;
   padding: 60px 40px;
@@ -160,21 +157,19 @@ body {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  background: rgba(10, 20, 40, 0.7); /* כהה ושקוף */
+  background: rgba(10, 20, 40, 0.7); 
   border-radius: 20px;
-  /* אפקט זכוכית */
   backdrop-filter: blur(25px);
   box-shadow: 0 0 80px rgba(0, 0, 0, 0.6);
-  overflow: hidden; /* חשוב לאנימציית הגבול */
+  overflow: hidden;
 }
 
-/* יצירת הגבול המסתובב */
 .auth-card-size::before {
   content: "";
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 200%; /* רחב יותר מהכרטיס */
+  width: 200%; 
   height: 200%;
   background: conic-gradient(
     transparent,
@@ -207,8 +202,6 @@ body {
 }
 
 /* ================= LOGO & TEXT ================= */
-
-/* לוגו עם אפקט מים זזים בתוך הטקסט */
 .water-logo {
   font-size: 58px;
   font-weight: 900;
@@ -274,7 +267,7 @@ body {
   border: none;
   border-radius: 12px;
   background: #06b6d4;
-  color: #0f172a; /* טקסט כהה על רקע בהיר לקונטרסט */
+  color: #0f172a; 
   font-weight: 800;
   font-size: 16px;
   letter-spacing: 1px;
@@ -286,7 +279,6 @@ body {
   overflow: hidden;
 }
 
-/* אפקט ברק שעובר על הכפתור */
 .btn-water::before {
   content: "";
   position: absolute;
@@ -381,7 +373,6 @@ body {
   overflow: hidden;
 }
 
-/* כרטיס המתנה */
 .no-alerts-box {
   flex: 1;
   display: flex;
@@ -419,24 +410,18 @@ body {
   padding: 20px 30px 15px 30px;
   border-radius: 20px;
   text-align: center;
-
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   align-items: center;
-
   width: 95%;
   max-width: 1400px;
   margin: auto;
-
-  /* שינוי: גובה מקסימלי וגלילה אוטומטית אם צריך */
   max-height: calc(100vh - 120px);
   overflow-y: auto;
-
   align-self: center;
 }
 
-/* עיצוב פס גלילה לחלונית */
 .emergency-glass::-webkit-scrollbar {
   width: 8px;
 }
