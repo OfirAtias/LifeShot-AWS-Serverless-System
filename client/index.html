@@ -8,9 +8,20 @@
     />
     <title>LifeShot</title>
     <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
 
   <body>
+    <div class="ocean-background">
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+    </div>
+
     <!-- ===============================
          AUTH (COGNITO HOSTED UI)
          =============================== -->
@@ -18,20 +29,16 @@
       <div class="glass-card auth-card-size">
         <h1 class="water-logo">LifeShot</h1>
 
-        <p class="subtitle-text" style="margin-top: 6px">
-          Secure sign-in powered by Amazon Cognito
-        </p>
-
         <!-- Old username/password inputs are kept (hidden) just to not break your CSS/layout.
              You no longer log in locally from here. -->
         <!-- ✅ שינוי קטן: מורידים hidden כדי שתוכל לעשות login מהאתר שלך -->
         <div style="text-align: left; width: 100%">
-          <label class="label-text">Username / Email</label>
+          <label class="label-text">Email</label>
           <input
             type="text"
             id="username"
             class="input-glass"
-            placeholder="Enter username/email"
+            placeholder="Enter email"
           />
           <label class="label-text">Password</label>
           <input
@@ -40,6 +47,10 @@
             class="input-glass"
             placeholder="Enter password"
           />
+
+          <p class="subtitle-text" style="margin-top: 6px">
+            Secure sign-in powered by Amazon Cognito
+          </p>
         </div>
 
         <!-- ✅ שינוי: במקום cognitoLogin() -> handleLogin() -->
@@ -177,7 +188,7 @@
                       text-align: left;
                     "
                   >
-                    AFTER (RISK)
+                    AFTER
                   </div>
                   <img
                     id="img-after"
@@ -203,7 +214,9 @@
               </div>
             </div>
 
-            <div style="display: flex; justify-content: center; margin-top: 5px">
+            <div
+              style="display: flex; justify-content: center; margin-top: 5px"
+            >
               <button id="close-btn-id" class="btn-handled">
                 Handled — End Alarm
               </button>
@@ -263,24 +276,29 @@
           </div>
 
           <div class="right-column">
-            <div class="glass-card metric-card">
-              <div class="metric-header"><span>Total Events</span></div>
-              <span class="metric-value" id="stat-total">0</span>
-              <span class="metric-sub">Historical Data</span>
+            <div class="metrics-row-compact">
+              <div class="glass-card metric-card compact">
+                <div class="metric-header"><span>Total Events</span></div>
+                <span class="metric-value small-text" id="stat-total">0</span>
+              </div>
+              <div class="glass-card metric-card compact">
+                <div class="metric-header">Auto Refresh</div>
+                <span class="metric-value small-text">3s</span>
+              </div>
             </div>
-            <div class="glass-card metric-card">
-              <div class="metric-header">Auto Refresh</div>
-              <span class="metric-value" style="font-size: 48px">3s</span>
-              <span class="metric-sub">Polling Interval</span>
+
+            <div class="glass-card chart-card">
+              <div class="metric-header" style="margin-bottom: 10px">
+                Activity: Today vs Yesterday
+              </div>
+              <div class="chart-wrapper">
+                <canvas id="eventsPieChart"></canvas>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- ===============================
-         DEMO SCREEN
-         =============================== -->
     <div id="demo-screen" class="wrapper hidden full-screen-mode">
       <div class="dashboard-wrapper">
         <header class="glass-card header-layout">
@@ -298,14 +316,14 @@
           </div>
         </header>
 
-        <div class="demo-split-view">
-          <div class="demo-col">
-            <h3 class="demo-col-title">CAM 01</h3>
+        <div class="demo-stack-view">
+          <div class="demo-row-card">
+            <h3 class="demo-col-title">CAM 01 (Test 1)</h3>
             <div id="demo-container-cam1"></div>
           </div>
 
-          <div class="demo-col">
-            <h3 class="demo-col-title">CAM 02</h3>
+          <div class="demo-row-card">
+            <h3 class="demo-col-title">CAM 02 (Test 2)</h3>
             <div id="demo-container-cam2"></div>
           </div>
         </div>
@@ -317,8 +335,24 @@
          =============================== -->
     <div id="image-lightbox">
       <div id="lightbox-content">
+        <button
+          id="lightbox-prev"
+          class="lightbox-nav-arrow left"
+          onclick="prevLightboxImage()"
+        >
+          &#10094;
+        </button>
+
         <button id="lightbox-close">&times;</button>
         <img id="lightbox-image" src="" alt="Zoomed Image" />
+
+        <button
+          id="lightbox-next"
+          class="lightbox-nav-arrow right"
+          onclick="nextLightboxImage()"
+        >
+          &#10095;
+        </button>
       </div>
     </div>
 
@@ -330,8 +364,8 @@
         "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
 
       // ✅ חדש: כתובת ה-Lambda Auth (Function URL)
-      window.AUTH_BASE_URL ="https://55i6njjnjfjtpodemfdpucu5z40wlfqt.lambda-url.us-east-1.on.aws";
-
+      window.AUTH_BASE_URL =
+        "https://55i6njjnjfjtpodemfdpucu5z40wlfqt.lambda-url.us-east-1.on.aws";
 
       // הכל נשאר כמו שהיה (לא מוחקים שום דבר)
       window.COGNITO_DOMAIN =

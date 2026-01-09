@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LifeShot - Admin</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js" defer></script>
+  </head>
+  <body id="page-admin">
+    <div class="waves-container">
+      <svg
+        class="waves"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 24 150 28"
+        preserveAspectRatio="none"
+      >
+        <defs>
+          <path
+            id="gentle-wave"
+            d="M-160 44c30 0 58-18 88-18s 58 18 88 18 58-18 88-18 58 18 88 18 v44h-352z"
+          />
+        </defs>
+        <g class="parallax">
+          <use
+            xlink:href="#gentle-wave"
+            x="48"
+            y="0"
+            fill="rgba(34, 211, 238, 0.1)"
+          />
+          <use
+            xlink:href="#gentle-wave"
+            x="48"
+            y="3"
+            fill="rgba(34, 211, 238, 0.2)"
+          />
+          <use
+            xlink:href="#gentle-wave"
+            x="48"
+            y="5"
+            fill="rgba(6, 182, 212, 0.4)"
+          />
+          <use
+            xlink:href="#gentle-wave"
+            x="48"
+            y="7"
+            fill="rgba(15, 23, 42, 0.6)"
+          />
+        </g>
+      </svg>
+    </div>
+
+    <div class="full-screen-mode">
+      <div class="dashboard-wrapper">
+        <header class="glass-card header-layout">
+          <div class="header-left">
+            <h2 class="water-logo-small">LifeShot</h2>
+          </div>
+          <div class="header-center">
+            <h1 class="dashboard-title">ADMIN DASHBOARD</h1>
+          </div>
+          <div class="header-right" style="gap: 10px">
+            <button class="btn-nav" onclick="window.location.href='demo.html'">
+              Live Demo
+            </button>
+            <button class="btn-logout" onclick="logout()">Sign Out</button>
+          </div>
+        </header>
+
+        <div class="dashboard-grid">
+          <div class="left-column">
+            <div class="glass-card panel-container">
+              <div class="gallery-header">
+                <h3 class="panel-title">Event Log & Evidence</h3>
+                <div style="display: flex; gap: 8px">
+                  <button class="btn-filter" onclick="filterTable('ALL')">
+                    All
+                  </button>
+                  <button class="btn-filter" onclick="filterTable('OPEN')">
+                    Open
+                  </button>
+                </div>
+              </div>
+              <div
+                id="events-gallery-container"
+                class="events-gallery-scroll"
+              ></div>
+            </div>
+          </div>
+
+          <div class="right-column">
+            <div class="metrics-row-compact">
+              <div class="glass-card metric-card compact">
+                <div class="metric-header">Total Events</div>
+                <span class="metric-value small-text" id="stat-total">0</span>
+              </div>
+              <div class="glass-card metric-card compact">
+                <div class="metric-header">Auto Refresh</div>
+                <span class="metric-value small-text">3s</span>
+              </div>
+            </div>
+            <div class="glass-card chart-card">
+              <div class="metric-header" style="margin-bottom: 10px">
+                Activity Overview
+              </div>
+              <div class="chart-wrapper">
+                <canvas id="eventsPieChart"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="image-lightbox">
+      <button
+        id="lightbox-prev"
+        class="lightbox-nav-arrow left"
+        onclick="prevLightboxImage()"
+      >
+        &#10094;
+      </button>
+      <button id="lightbox-close">&times;</button>
+      <img id="lightbox-image" src="" />
+      <button
+        id="lightbox-next"
+        class="lightbox-nav-arrow right"
+        onclick="nextLightboxImage()"
+      >
+        &#10095;
+      </button>
+    </div>
+  </body>
+</html>

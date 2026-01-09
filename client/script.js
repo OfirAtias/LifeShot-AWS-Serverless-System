@@ -67,6 +67,8 @@ let allEvents = [];
 let activeAlertsList = [];
 let currentAlertIndex = 0;
 let alertPollTimer = null;
+let currentLightboxImages = [];
+let currentLightboxIndex = 0;
 
 // ===============================
 // HELPERS
@@ -264,7 +266,9 @@ async function checkLiveAlerts() {
 
     activeAlertsList = (Array.isArray(data) ? data : [])
       .filter((e) => normalizeStatus(e.status) === "OPEN" && e.warningImageUrl)
-      .sort((a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at));
+      .sort(
+        (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at)
+      );
 
     const overlay = document.getElementById("emergency-overlay");
     const noAlertsState = document.getElementById("no-alerts-state");
@@ -301,7 +305,9 @@ function renderCurrentAlert() {
 
   const counter = document.getElementById("alert-counter");
   if (counter) {
-    counter.innerText = `Alert ${currentAlertIndex + 1} of ${activeAlertsList.length}`;
+    counter.innerText = `Alert ${currentAlertIndex + 1} of ${
+      activeAlertsList.length
+    }`;
   }
 
   const created = parseDateSafe(alertData.created_at);
@@ -357,10 +363,17 @@ async function fetchEvents() {
     const res = await apiFetch(`/events`);
     allEvents = await res.json();
 
-    const stat = document.getElementById("stat-total");
-    if (stat) stat.innerText = Array.isArray(allEvents) ? allEvents.length : 0;
+    // ✅ התיקון: מגדירים את המשתנה הזה כאן כדי להשתמש בו גם לגלריה וגם לגרף
+    const dataArr = Array.isArray(allEvents) ? allEvents : [];
 
-    renderGallery(Array.isArray(allEvents) ? allEvents : []);
+    const stat = document.getElementById("stat-total");
+    if (stat) stat.innerText = dataArr.length;
+
+    // שליחת הנתונים לגלריה
+    renderGallery(dataArr);
+
+    // שליחת הנתונים לגרף החדש
+    updateManagerChart(dataArr);
   } catch (e) {
     console.error(e);
   }
@@ -437,13 +450,15 @@ function renderGallery(data) {
 
 function filterTable(type) {
   if (type === "ALL") renderGallery(allEvents);
-  else renderGallery(allEvents.filter((e) => normalizeStatus(e.status) === type));
+  else
+    renderGallery(allEvents.filter((e) => normalizeStatus(e.status) === type));
 }
 
 // ===============================
 // DEMO PAGE LOGIC
 // ===============================
 function renderDemoPage() {
+  currentLightboxImages = []; // איפוס רשימת התמונות לניווט
   renderSingleCamera("demo-container-cam1", "Test1", 8);
   renderSingleCamera("demo-container-cam2", "Test2", 12);
 }
@@ -461,12 +476,18 @@ function renderSingleCamera(containerId, folderName, imageCount) {
     let filename = folderName === "Test1" ? `${i}.png` : `Test2_${i}.png`;
     const imgSrc = `images/${folderName}/${filename}`;
 
+    // שמירת האינדקס לניווט
+    const globalIndex = currentLightboxImages.length;
+    currentLightboxImages.push(imgSrc);
+
     const img = document.createElement("img");
     img.src = imgSrc;
     img.className = "mini-cam-img";
     img.alt = `${folderName} Event ${i}`;
+
+    // שליחה לפונקציית פתיחה לפי אינדקס
     img.onclick = function () {
-      openLightbox(this.src);
+      openLightboxByIndex(globalIndex);
     };
     img.onerror = function () {
       this.style.display = "none";
@@ -474,7 +495,6 @@ function renderSingleCamera(containerId, folderName, imageCount) {
 
     gridDiv.appendChild(img);
   }
-
   container.appendChild(gridDiv);
 }
 
@@ -527,4 +547,118 @@ function cognitoLogin() {
 }
 function cognitoSignup() {
   alert("Signup is disabled. Remove the signup button from index.html.");
+}
+
+// פונקציות לניווט בלייטבוקס
+function openLightboxByIndex(index) {
+  currentLightboxIndex = index;
+  updateLightboxView();
+}
+
+function updateLightboxView() {
+  const lb = document.getElementById("image-lightbox");
+  const img = document.getElementById("lightbox-image");
+
+  if (lb && img && currentLightboxImages.length > 0) {
+    img.src = currentLightboxImages[currentLightboxIndex];
+    lb.classList.add("active");
+
+    // הצגת/הסתרת חיצים
+    const prevBtn = document.getElementById("lightbox-prev");
+    const nextBtn = document.getElementById("lightbox-next");
+    const showArrows = currentLightboxImages.length > 1 ? "block" : "none";
+
+    if (prevBtn) prevBtn.style.display = showArrows;
+    if (nextBtn) nextBtn.style.display = showArrows;
+  }
+}
+
+function nextLightboxImage() {
+  if (currentLightboxImages.length === 0) return;
+  currentLightboxIndex =
+    (currentLightboxIndex + 1) % currentLightboxImages.length;
+  updateLightboxView();
+}
+
+function prevLightboxImage() {
+  if (currentLightboxImages.length === 0) return;
+  currentLightboxIndex =
+    (currentLightboxIndex - 1 + currentLightboxImages.length) %
+    currentLightboxImages.length;
+  updateLightboxView();
+}
+
+// ===============================
+// CHART LOGIC (MANAGER)
+// ===============================
+let myPieChart = null; // משתנה לשמירת הגרף
+
+function updateManagerChart(events) {
+  const ctx = document.getElementById("eventsPieChart");
+  if (!ctx) return;
+
+  // חישוב נתונים (היום מול אתמול)
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const isSameDate = (d1, d2) =>
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate();
+
+  let countToday = 0;
+  let countYesterday = 0;
+
+  events.forEach((e) => {
+    const d = parseDateSafe(e.created_at);
+    if (isSameDate(d, today)) countToday++;
+    if (isSameDate(d, yesterday)) countYesterday++;
+  });
+
+  // בדיקה: אם אין בכלל נתונים, נציג נתוני דמו כדי שהגרף יופיע (לבדיקה)
+  // תוכלי למחוק את ה-if הזה כשיש נתונים אמיתיים
+  if (countToday === 0 && countYesterday === 0) {
+    countToday = 5; // סתם מספרים לבדיקה
+    countYesterday = 3;
+  }
+
+  // אם כבר יש גרף קיים, נהרוס אותו כדי לא ליצור כפילויות
+  if (window.myPieChart instanceof Chart) {
+    window.myPieChart.destroy();
+  }
+
+  // יצירת הגרף
+  window.myPieChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: ["Today", "Yesterday"],
+      datasets: [
+        {
+          data: [countToday, countYesterday],
+          backgroundColor: [
+            "#22d3ee", // ציאן חזק
+            "rgba(255, 255, 255, 0.3)", // לבן שקוף
+          ],
+          borderColor: "transparent",
+          borderWidth: 0,
+          hoverOffset: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false, // חשוב מאוד כדי שיתאים לגובה שקבענו ב-CSS
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: {
+            color: "white",
+            font: { size: 14, family: "'Segoe UI', sans-serif" },
+            padding: 20,
+          },
+        },
+      },
+    },
+  });
 }
