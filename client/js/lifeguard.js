@@ -242,19 +242,6 @@ async function dismissAlert(eventId) {
   }
 }
 
-async function dismissAlert(eventId) {
-  try {
-    await apiFetch(`/events`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ eventId }),
-    });
-    checkLiveAlerts();
-  } catch (err) {
-    console.error(err);
-  }
-}
-
 async function falseAlert(eventId) {
   try {
     await apiFetch(`/update-status`, {
