@@ -8,6 +8,10 @@ const API_BASE_URL =
 const AUTH_BASE_URL =
   window.AUTH_BASE_URL || "https://YOUR_AUTH_FUNCTION_URL.on.aws";
 
+const DETECTOR_LAMBDA_URL =
+  window.DETECTOR_LAMBDA_URL ||
+  "https://wrc7tihzk4awnumbnngfi7yrfa0bmict.lambda-url.us-east-1.on.aws";
+
 // ===============================
 // TOKEN STORAGE (LOCALSTORAGE)
 // ===============================
@@ -75,7 +79,6 @@ function getSafeUrl(url) {
 // AUTH (Lambda Auth)
 // ===============================
 async function authMe() {
-  // נבדוק "מי אני" על בסיס token שנשמר
   const idToken = getIdToken();
   if (!idToken || isTokenExpired()) return null;
 
@@ -106,16 +109,12 @@ async function apiFetch(path, options = {}) {
     ...authHeader(),
   };
 
-  // דיבאג קצר - אפשר למחוק אחרי שזה עובד
-  // console.log("API auth token prefix:", (headers.Authorization || "").slice(0, 35));
-
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
     cache: "no-store",
   });
 
-  // ✅ בזמן בדיקה לא עושים logout אוטומטי - כדי שתראה מה חוזר ב-Network
   if (res.status === 401 || res.status === 403) {
     console.warn(
       "Unauthorized from API (check authorizer token type / issuer / audience)",
@@ -145,10 +144,51 @@ function showScreen(id) {
 
 async function logout() {
   await authLogout();
-
   clearTokens();
-
   window.location.href = "../pages/login.html";
+}
+
+// ===============================
+// ✅ NEW: RUN DETECTOR (LifeShot-Detector Lambda Function URL)
+// ===============================
+async function runDetectorTest(testName) {
+  try {
+    const payload =
+      testName === "Test2"
+        ? {
+            prefix: "LifeShot/Test2/",
+            drowningset_prefix: "LifeShot/DrowningSet/",
+            max_frames: 30,
+          }
+        : {
+            prefix: "LifeShot/Test1/",
+            drowningset_prefix: "LifeShot/DrowningSet/",
+            max_frames: 30,
+          };
+
+    const res = await fetch(DETECTOR_LAMBDA_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getApiBearerToken()}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      console.error("Detector failed:", res.status, data);
+      alert(`Detector failed (${res.status}). Check console/logs.`);
+      return;
+    }
+
+    console.log("Detector result:", data);
+    alert(`Detector triggered successfully ✅ (${testName})`);
+  } catch (err) {
+    console.error("Detector error:", err);
+    alert("Error triggering detector. Check console.");
+  }
 }
 
 // ===============================
@@ -159,16 +199,12 @@ async function fetchEvents() {
     const res = await apiFetch(`/events`);
     allEvents = await res.json();
 
-    // ✅ התיקון: מגדירים את המשתנה הזה כאן כדי להשתמש בו גם לגלריה וגם לגרף
     const dataArr = Array.isArray(allEvents) ? allEvents : [];
 
     const stat = document.getElementById("stat-total");
     if (stat) stat.innerText = dataArr.length;
 
-    // שליחת הנתונים לגלריה
     renderGallery(dataArr);
-
-    // שליחת הנתונים לגרף החדש
     updateManagerChart(dataArr);
   } catch (e) {
     console.error(e);
@@ -272,7 +308,6 @@ function renderSingleCamera(containerId, folderName, imageCount) {
     let filename = folderName === "Test1" ? `${i}.png` : `Test2_${i}.png`;
     const imgSrc = `../images/${folderName}/${filename}`;
 
-    // שמירת האינדקס לניווט
     const globalIndex = currentLightboxImages.length;
     currentLightboxImages.push(imgSrc);
 
@@ -281,7 +316,6 @@ function renderSingleCamera(containerId, folderName, imageCount) {
     img.className = "mini-cam-img";
     img.alt = `${folderName} Event ${i}`;
 
-    // שליחה לפונקציית פתיחה לפי אינדקס
     img.onclick = function () {
       openLightboxByIndex(globalIndex);
     };
@@ -319,7 +353,6 @@ function updateLightboxView() {
     img.src = currentLightboxImages[currentLightboxIndex];
     lb.classList.add("active");
 
-    // הצגת/הסתרת חיצים
     const prevBtn = document.getElementById("lightbox-prev");
     const nextBtn = document.getElementById("lightbox-next");
     const showArrows = currentLightboxImages.length > 1 ? "block" : "none";
@@ -351,7 +384,6 @@ function updateManagerChart(events) {
   const ctx = document.getElementById("eventsPieChart");
   if (!ctx) return;
 
-  // חישוב נתונים (היום מול אתמול)
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
@@ -370,19 +402,15 @@ function updateManagerChart(events) {
     if (isSameDate(d, yesterday)) countYesterday++;
   });
 
-  // בדיקה: אם אין בכלל נתונים, נציג נתוני דמו כדי שהגרף יופיע (לבדיקה)
-  // תוכלי למחוק את ה-if הזה כשיש נתונים אמיתיים
   if (countToday === 0 && countYesterday === 0) {
-    countToday = 5; // סתם מספרים לבדיקה
+    countToday = 5;
     countYesterday = 3;
   }
 
-  // אם כבר יש גרף קיים, נהרוס אותו כדי לא ליצור כפילויות
   if (window.myPieChart instanceof Chart) {
     window.myPieChart.destroy();
   }
 
-  // יצירת הגרף
   window.myPieChart = new Chart(ctx, {
     type: "doughnut",
     data: {
@@ -390,10 +418,7 @@ function updateManagerChart(events) {
       datasets: [
         {
           data: [countToday, countYesterday],
-          backgroundColor: [
-            "#22d3ee", // ציאן חזק
-            "rgba(255, 255, 255, 0.3)", // לבן שקוף
-          ],
+          backgroundColor: ["#22d3ee", "rgba(255, 255, 255, 0.3)"],
           borderColor: "transparent",
           borderWidth: 0,
           hoverOffset: 4,
@@ -402,7 +427,7 @@ function updateManagerChart(events) {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false, // חשוב מאוד כדי שיתאים לגובה שקבענו ב-CSS
+      maintainAspectRatio: false,
       plugins: {
         legend: {
           position: "bottom",
@@ -421,7 +446,6 @@ function updateManagerChart(events) {
 // BOOTSTRAP
 // ===============================
 document.addEventListener("DOMContentLoaded", async () => {
-  // Lightbox wiring
   const lb = document.getElementById("image-lightbox");
   const img = document.getElementById("lightbox-image");
   const close = document.getElementById("lightbox-close");
@@ -432,7 +456,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       setTimeout(() => (img.src = ""), 300);
     };
 
-  // Role gate
   try {
     const me = await authMe();
     const r = String(me?.role || "").toLowerCase();
