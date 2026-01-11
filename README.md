@@ -1,1 +1,1 @@
-http://localhost:5500/client/index.html
+http://localhost:5500/client/login.html
