@@ -209,6 +209,10 @@ function renderCurrentAlert() {
 
   const closeBtn = document.getElementById("close-btn-id");
   if (closeBtn) closeBtn.onclick = () => dismissAlert(alertData.eventId);
+
+  const flaseAlarmBtn = document.getElementById("false-btn-id");
+  if (flaseAlarmBtn)
+    flaseAlarmBtn.onclick = () => falseAlert(alertData.eventId);
 }
 
 function nextAlert() {
@@ -233,6 +237,31 @@ async function dismissAlert(eventId) {
       body: JSON.stringify({ eventId }),
     });
     checkLiveAlerts();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function dismissAlert(eventId) {
+  try {
+    await apiFetch(`/events`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId }),
+    });
+    checkLiveAlerts();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function falseAlert(eventId) {
+  try {
+    await apiFetch(`/update-status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId }),
+    });
   } catch (err) {
     console.error(err);
   }
