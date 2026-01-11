@@ -175,19 +175,18 @@ body {
     transparent,
     transparent,
     transparent,
-    #06b6d4 /* הצבע הזוהר */
+    #06b6d4 
   );
   animation: border-spin 4s linear infinite;
   transform: translate(-50%, -50%);
   z-index: -2;
 }
 
-/* יצירת הרקע הפנימי שמסתיר את הגבול המסתובב ומשאיר רק מסגרת דקה */
 .auth-card-size::after {
   content: "";
   position: absolute;
-  inset: 3px; /* עובי המסגרת */
-  background: rgba(15, 23, 42, 0.9); /* צבע הרקע של הכרטיס */
+  inset: 3px; 
+  background: rgba(15, 23, 42, 0.9); 
   border-radius: 18px;
   z-index: -1;
 }

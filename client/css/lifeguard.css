@@ -221,7 +221,6 @@ body {
   }
 }
 
-/* ✅ כרטיס התראה - תיקון גובה וגלילה */
 .emergency-glass {
   background: rgba(127, 29, 29, 0.95);
   backdrop-filter: blur(30px);
@@ -266,7 +265,6 @@ body {
   }
 }
 
-/* ניווט */
 .alert-navigation-header {
   display: flex;
   justify-content: space-between;
@@ -294,7 +292,6 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
-/* כותרת */
 .alert-top-section {
   flex-shrink: 0;
   margin-bottom: 5px;
@@ -303,13 +300,12 @@ body {
   gap: 10px;
 }
 
-/* אזור התמונות - הסרת flex: 1 */
 #before-after-carousel {
   display: flex;
   flex-direction: column;
   margin: 10px 0;
   width: 100%;
-  flex-shrink: 0; /* שלא יתכווץ */
+  flex-shrink: 0; 
 }
 
 .carousel-inner {
@@ -317,7 +313,6 @@ body {
   gap: 20px;
   width: 100%;
   justify-content: center;
-  /* הוסר height: 100% */
 }
 
 .alert-img-container {
@@ -325,22 +320,19 @@ body {
   max-width: 48%;
   display: flex;
   flex-direction: column;
-  /* הוסר height: 100% */
 }
 
-/* ✅ תמונות - גדולות ו-Cover */
 .alert-img {
   width: 100%;
-  height: 450px; /* גובה קבוע וגדול */
-  object-fit: cover; /* ממלא את המסגרת, חותך אם צריך */
+  height: 450px;
+  object-fit: cover;
   border-radius: 12px;
   background: transparent;
   border: none;
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5));
-  cursor: zoom-in; /* מציין שאפשר להגדיל */
+  cursor: zoom-in; 
 }
 
-/* סטטוס וזמן */
 .data-box-glass {
   background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
@@ -445,9 +437,8 @@ body {
   cursor: pointer;
 }
 
-/* ================= DEMO PAGE STYLES ================= */
+/* ================= DEMO PAGE STYLES ================= 
 
-/* כפתורי ניווט בלייטבוקס */
 .lightbox-nav-arrow {
   position: absolute;
   top: 50%;
@@ -470,3 +461,4 @@ body {
 .lightbox-nav-arrow.right {
   right: 40px;
 }
+*/
