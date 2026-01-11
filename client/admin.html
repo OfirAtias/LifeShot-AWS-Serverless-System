@@ -1,67 +1,41 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LifeShot - Admin</title>
-    <link rel="stylesheet" href="style.css" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>LifeShot</title>
+    <link rel="stylesheet" href="admin.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="script.js" defer></script>
   </head>
-  <body id="page-admin">
-    <div class="waves-container">
-      <svg
-        class="waves"
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 24 150 28"
-        preserveAspectRatio="none"
-      >
-        <defs>
-          <path
-            id="gentle-wave"
-            d="M-160 44c30 0 58-18 88-18s 58 18 88 18 58-18 88-18 58 18 88 18 v44h-352z"
-          />
-        </defs>
-        <g class="parallax">
-          <use
-            xlink:href="#gentle-wave"
-            x="48"
-            y="0"
-            fill="rgba(34, 211, 238, 0.1)"
-          />
-          <use
-            xlink:href="#gentle-wave"
-            x="48"
-            y="3"
-            fill="rgba(34, 211, 238, 0.2)"
-          />
-          <use
-            xlink:href="#gentle-wave"
-            x="48"
-            y="5"
-            fill="rgba(6, 182, 212, 0.4)"
-          />
-          <use
-            xlink:href="#gentle-wave"
-            x="48"
-            y="7"
-            fill="rgba(15, 23, 42, 0.6)"
-          />
-        </g>
-      </svg>
+
+  <body>
+    <div class="ocean-background">
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
     </div>
 
-    <div class="full-screen-mode">
+    <!-- ===============================
+         MANAGER DASHBOARD
+         =============================== -->
+    <div id="manager-dashboard" class="wrapper hidden full-screen-mode">
       <div class="dashboard-wrapper">
         <header class="glass-card header-layout">
           <div class="header-left">
             <h2 class="water-logo-small">LifeShot</h2>
           </div>
           <div class="header-center">
-            <h1 class="dashboard-title">ADMIN DASHBOARD</h1>
+            <h1 class="dashboard-title">MANAGER DASHBOARD</h1>
           </div>
           <div class="header-right" style="gap: 10px">
-            <button class="btn-nav" onclick="window.location.href='demo.html'">
+            <button class="btn-nav" onclick="showScreen('demo-screen')">
               Live Demo
             </button>
             <button class="btn-logout" onclick="logout()">Sign Out</button>
@@ -92,7 +66,7 @@
           <div class="right-column">
             <div class="metrics-row-compact">
               <div class="glass-card metric-card compact">
-                <div class="metric-header">Total Events</div>
+                <div class="metric-header"><span>Total Events</span></div>
                 <span class="metric-value small-text" id="stat-total">0</span>
               </div>
               <div class="glass-card metric-card compact">
@@ -100,9 +74,10 @@
                 <span class="metric-value small-text">3s</span>
               </div>
             </div>
+
             <div class="glass-card chart-card">
               <div class="metric-header" style="margin-bottom: 10px">
-                Activity Overview
+                Activity: Today vs Yesterday
               </div>
               <div class="chart-wrapper">
                 <canvas id="eventsPieChart"></canvas>
@@ -112,24 +87,83 @@
         </div>
       </div>
     </div>
+    <div id="demo-screen" class="wrapper hidden full-screen-mode">
+      <div class="dashboard-wrapper">
+        <header class="glass-card header-layout">
+          <div class="header-left">
+            <h2 class="water-logo-small">LifeShot</h2>
+          </div>
+          <div class="header-center">
+            <h1 class="dashboard-title">LIVE CAMERA FEED</h1>
+          </div>
+          <div class="header-right" style="gap: 10px">
+            <button class="btn-nav" onclick="showScreen('manager-dashboard')">
+              Dashboard
+            </button>
+            <button class="btn-logout" onclick="logout()">Sign Out</button>
+          </div>
+        </header>
 
-    <div id="image-lightbox">
-      <button
-        id="lightbox-prev"
-        class="lightbox-nav-arrow left"
-        onclick="prevLightboxImage()"
-      >
-        &#10094;
-      </button>
-      <button id="lightbox-close">&times;</button>
-      <img id="lightbox-image" src="" />
-      <button
-        id="lightbox-next"
-        class="lightbox-nav-arrow right"
-        onclick="nextLightboxImage()"
-      >
-        &#10095;
-      </button>
+        <div class="demo-stack-view">
+          <div class="demo-row-card">
+            <h3 class="demo-col-title">CAM 01 (Test 1)</h3>
+            <div id="demo-container-cam1"></div>
+          </div>
+
+          <div class="demo-row-card">
+            <h3 class="demo-col-title">CAM 02 (Test 2)</h3>
+            <div id="demo-container-cam2"></div>
+          </div>
+        </div>
+      </div>
     </div>
+
+    <!-- ===============================
+         LIGHTBOX
+         =============================== -->
+    <div id="image-lightbox">
+      <div id="lightbox-content">
+        <button
+          id="lightbox-prev"
+          class="lightbox-nav-arrow left"
+          onclick="prevLightboxImage()"
+        >
+          &#10094;
+        </button>
+
+        <button id="lightbox-close">&times;</button>
+        <img id="lightbox-image" src="" alt="Zoomed Image" />
+
+        <button
+          id="lightbox-next"
+          class="lightbox-nav-arrow right"
+          onclick="nextLightboxImage()"
+        >
+          &#10095;
+        </button>
+      </div>
+    </div>
+
+        <!-- ===============================
+          CONFIG (used by script.js)
+          =============================== -->
+    <script>
+      window.API_BASE_URL =
+        "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
+
+      // ✅ חדש: כתובת ה-Lambda Auth (Function URL)
+      window.AUTH_BASE_URL =
+        "https://55i6njjnjfjtpodemfdpucu5z40wlfqt.lambda-url.us-east-1.on.aws";
+
+      // הכל נשאר כמו שהיה (לא מוחקים שום דבר)
+      window.COGNITO_DOMAIN =
+        "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
+
+      window.COGNITO_CLIENT_ID = "64l10nbtrs68ojhpe1am42dafn";
+      window.COGNITO_REDIRECT_URI = "http://localhost:5500/client/index.html";
+      window.COGNITO_SCOPES = "openid email";
+    </script>
+
+    <script src="admin.js"></script>
   </body>
 </html>

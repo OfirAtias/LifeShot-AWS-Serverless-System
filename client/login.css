@@ -1,0 +1,319 @@
+/* ================= VARIABLES ================= */
+:root {
+  --cyan-400: #22d3ee;
+  --cyan-500: #06b6d4;
+  --text-main: #ffffff;
+  --glass-bg: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.2);
+}
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Segoe UI", sans-serif;
+  background-image: url("images/Background.jpg");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  color: white;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  z-index: -1;
+  backdrop-filter: blur(3px);
+}
+.hidden {
+  display: none !important;
+}
+
+/* ================= GLOBAL & BACKGROUND ================= */
+body {
+  font-family: "Segoe UI", sans-serif;
+  background-color: #0f172a; 
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    #1e293b 0%,
+    #0f172a 100%
+  );
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  color: white;
+  position: relative;
+}
+
+/* אנימציית הבועות ברקע */
+.ocean-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: -1; 
+}
+
+.bubble {
+  position: absolute;
+  bottom: -100px;
+  width: 40px;
+  height: 40px;
+  background: rgba(34, 211, 238, 0.1);
+  border-radius: 50%;
+  opacity: 0.5;
+  animation: rise 15s infinite ease-in;
+}
+
+.bubble:nth-child(1) {
+  left: 10%;
+  width: 80px;
+  height: 80px;
+  animation-duration: 12s;
+  animation-delay: 0s;
+}
+.bubble:nth-child(2) {
+  left: 20%;
+  width: 20px;
+  height: 20px;
+  animation-duration: 18s;
+  animation-delay: 2s;
+}
+.bubble:nth-child(3) {
+  left: 35%;
+  width: 50px;
+  height: 50px;
+  animation-duration: 25s;
+  animation-delay: 4s;
+}
+.bubble:nth-child(4) {
+  left: 50%;
+  width: 90px;
+  height: 90px;
+  animation-duration: 15s;
+  animation-delay: 0s;
+}
+.bubble:nth-child(5) {
+  left: 65%;
+  width: 35px;
+  height: 35px;
+  animation-duration: 20s;
+  animation-delay: 0s;
+}
+.bubble:nth-child(6) {
+  left: 80%;
+  width: 60px;
+  height: 60px;
+  animation-duration: 28s;
+  animation-delay: 5s;
+}
+.bubble:nth-child(7) {
+  left: 90%;
+  width: 45px;
+  height: 45px;
+  animation-duration: 16s;
+  animation-delay: 2s;
+}
+
+@keyframes rise {
+  0% {
+    bottom: -100px;
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(50px);
+  }
+  100% {
+    bottom: 100vh;
+    transform: translateX(-50px);
+  }
+}
+
+/* ================= AUTH CARD (HOLOGRAPHIC) ================= */
+.auth-body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  padding: 20px;
+  position: relative;
+  z-index: 10;
+}
+
+.auth-card-size {
+  position: relative;
+  padding: 60px 40px;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  background: rgba(10, 20, 40, 0.7); 
+  border-radius: 20px;
+  backdrop-filter: blur(25px);
+  box-shadow: 0 0 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.auth-card-size::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 200%; 
+  height: 200%;
+  background: conic-gradient(
+    transparent,
+    transparent,
+    transparent,
+    #06b6d4 /* הצבע הזוהר */
+  );
+  animation: border-spin 4s linear infinite;
+  transform: translate(-50%, -50%);
+  z-index: -2;
+}
+
+/* יצירת הרקע הפנימי שמסתיר את הגבול המסתובב ומשאיר רק מסגרת דקה */
+.auth-card-size::after {
+  content: "";
+  position: absolute;
+  inset: 3px; /* עובי המסגרת */
+  background: rgba(15, 23, 42, 0.9); /* צבע הרקע של הכרטיס */
+  border-radius: 18px;
+  z-index: -1;
+}
+
+@keyframes border-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* ================= LOGO & TEXT ================= */
+.water-logo {
+  font-size: 58px;
+  font-weight: 900;
+  margin-bottom: 10px;
+  background: linear-gradient(to right, #22d3ee, #ffffff, #22d3ee);
+  background-size: 200% auto;
+  color: #fff;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 3s linear infinite;
+  filter: drop-shadow(0 0 15px rgba(34, 211, 238, 0.4));
+}
+
+@keyframes shine {
+  to {
+    background-position: 200% center;
+  }
+}
+
+.subtitle-text {
+  color: #94a3b8;
+  font-size: 14px;
+  margin-bottom: 30px;
+  letter-spacing: 0.5px;
+}
+
+/* ================= INPUTS ================= */
+.label-text {
+  align-self: flex-start;
+  color: #a5f3fc;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  margin-left: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.input-glass {
+  width: 100%;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: white;
+  margin-bottom: 20px;
+  font-size: 16px;
+  transition: 0.3s;
+}
+
+.input-glass:focus {
+  background: rgba(34, 211, 238, 0.05);
+  border-color: #22d3ee;
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.2);
+  outline: none;
+}
+
+/* ================= BUTTON ================= */
+.btn-water {
+  width: 100%;
+  padding: 18px;
+  margin-top: 15px;
+  border: none;
+  border-radius: 12px;
+  background: #06b6d4;
+  color: #0f172a; 
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-water::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  transition: 0.5s;
+}
+
+.btn-water:hover {
+  background: #22d3ee;
+  box-shadow: 0 0 40px rgba(34, 211, 238, 0.6);
+  transform: translateY(-2px);
+}
+
+.btn-water:hover::before {
+  left: 100%;
+}
+
+.auth-footer {
+  margin-top: 30px;
+  font-size: 13px;
+  color: #64748b;
+}
+.auth-footer a {
+  color: #22d3ee;
+  transition: 0.3s;
+}
+.auth-footer a:hover {
+  text-shadow: 0 0 10px #22d3ee;
+}

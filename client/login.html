@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>LifeShot</title>
+    <link rel="stylesheet" href="login.css" />
+  </head>
+
+  <body>
+    <div class="ocean-background">
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+      <div class="bubble"></div>
+    </div>
+
+    <!-- ===============================
+         AUTH (COGNITO HOSTED UI)
+         =============================== -->
+    <div id="login-screen" class="auth-body">
+      <div class="glass-card auth-card-size">
+        <h1 class="water-logo">LifeShot</h1>
+
+        <!-- Old username/password inputs are kept (hidden) just to not break your CSS/layout.
+             You no longer log in locally from here. -->
+        <!-- ✅ שינוי קטן: מורידים hidden כדי שתוכל לעשות login מהאתר שלך -->
+        <div style="text-align: left; width: 100%">
+          <label class="label-text">Email</label>
+          <input
+            type="text"
+            id="username"
+            class="input-glass"
+            placeholder="Enter email"
+          />
+          <label class="label-text">Password</label>
+          <input
+            type="password"
+            id="password"
+            class="input-glass"
+            placeholder="Enter password"
+          />
+
+          <p class="subtitle-text" style="margin-top: 6px">
+            Secure sign-in powered by Amazon Cognito
+          </p>
+        </div>
+
+        <!-- ✅ שינוי: במקום cognitoLogin() -> handleLogin() -->
+        <button type="button" class="btn-water" onclick="handleLogin()">
+          Log In
+        </button>
+
+        <p
+          id="auth-error"
+          class="auth-footer hidden"
+          style="color: #ff9aa2; margin-top: 10px"
+        >
+          Login failed. Please try again.
+        </p>
+      </div>
+    </div>
+
+    <!-- ===============================
+         CONFIG (used by login.js)
+         =============================== -->
+    <script>
+      window.API_BASE_URL =
+        "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
+
+      // ✅ חדש: כתובת ה-Lambda Auth (Function URL)
+      window.AUTH_BASE_URL =
+        "https://55i6njjnjfjtpodemfdpucu5z40wlfqt.lambda-url.us-east-1.on.aws";
+
+      // הכל נשאר כמו שהיה (לא מוחקים שום דבר)
+      window.COGNITO_DOMAIN =
+        "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
+
+      window.COGNITO_CLIENT_ID = "64l10nbtrs68ojhpe1am42dafn";
+      window.COGNITO_REDIRECT_URI = "http://localhost:5500/client/index.html";
+      window.COGNITO_SCOPES = "openid email";
+    </script>
+
+    <script src="login.js"></script>
+  </body>
+</html>
