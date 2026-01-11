@@ -123,7 +123,7 @@ async function handleLogin() {
   try {
     const me = await authLogin(username, password);
 
-    // ✅ לשמור טוקנים אחרי login
+    //  לשמור טוקנים אחרי login
     saveTokensFromLoginResponse(me);
 
     routeAfterLogin(me.role);

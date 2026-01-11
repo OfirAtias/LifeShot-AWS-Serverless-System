@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>LifeShot</title>
-    <link rel="stylesheet" href="lifeguard.css" />
+    <link rel="stylesheet" href="../css/lifeguard.css" />
   </head>
 
   <body>
@@ -146,7 +146,9 @@
               </div>
             </div>
 
-            <div style="display: flex; justify-content: center; margin-top: 5px">
+            <div
+              style="display: flex; justify-content: center; margin-top: 5px"
+            >
               <button id="close-btn-id" class="btn-handled">
                 Handled — End Alarm
               </button>
@@ -206,10 +208,11 @@
         "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
 
       window.COGNITO_CLIENT_ID = "64l10nbtrs68ojhpe1am42dafn";
-      window.COGNITO_REDIRECT_URI = "http://localhost:5500/client/index.html";
+      window.COGNITO_REDIRECT_URI =
+        "http://localhost:5500/client/pages/login.html";
       window.COGNITO_SCOPES = "openid email";
     </script>
 
-    <script src="lifeguard.js"></script>
+    <script src="../js/lifeguard.js"></script>
   </body>
 </html>

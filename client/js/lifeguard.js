@@ -133,7 +133,7 @@ async function logout() {
 
   clearTokens();
 
-  window.location.href = "login.html";
+  window.location.href = "../pages/login.html";
 }
 
 // ===============================
@@ -149,7 +149,9 @@ async function checkLiveAlerts() {
 
     activeAlertsList = (Array.isArray(data) ? data : [])
       .filter((e) => normalizeStatus(e.status) === "OPEN" && e.warningImageUrl)
-      .sort((a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at));
+      .sort(
+        (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at)
+      );
 
     const overlay = document.getElementById("emergency-overlay");
     const noAlertsState = document.getElementById("no-alerts-state");
@@ -313,7 +315,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const r = String(me?.role || "").toLowerCase();
 
     if (!(me?.ok && (r === "guard" || r === "lifeguard"))) {
-      window.location.href = "login.html";
+      window.location.href = "../pages/login.html";
       return;
     }
 
@@ -323,6 +325,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     checkLiveAlerts();
     alertPollTimer = setInterval(checkLiveAlerts, 3000);
   } catch {
-    window.location.href = "login.html";
+    window.location.href = "../pages/login.html";
   }
 });

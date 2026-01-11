@@ -148,7 +148,7 @@ async function logout() {
 
   clearTokens();
 
-  window.location.href = "login.html";
+  window.location.href = "../pages/login.html";
 }
 
 // ===============================
@@ -246,7 +246,8 @@ function renderGallery(data) {
 
 function filterTable(type) {
   if (type === "ALL") renderGallery(allEvents);
-  else renderGallery(allEvents.filter((e) => normalizeStatus(e.status) === type));
+  else
+    renderGallery(allEvents.filter((e) => normalizeStatus(e.status) === type));
 }
 
 // ===============================
@@ -269,7 +270,7 @@ function renderSingleCamera(containerId, folderName, imageCount) {
 
   for (let i = 1; i <= imageCount; i++) {
     let filename = folderName === "Test1" ? `${i}.png` : `Test2_${i}.png`;
-    const imgSrc = `images/${folderName}/${filename}`;
+    const imgSrc = `../images/${folderName}/${filename}`;
 
     // שמירת האינדקס לניווט
     const globalIndex = currentLightboxImages.length;
@@ -437,13 +438,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     const r = String(me?.role || "").toLowerCase();
 
     if (!(me?.ok && r === "admin")) {
-      window.location.href = "login.html";
+      window.location.href = "../pages/login.html";
       return;
     }
 
     showScreen("manager-dashboard");
     fetchEvents();
   } catch {
-    window.location.href = "login.html";
+    window.location.href = "../pages/login.html";
   }
 });

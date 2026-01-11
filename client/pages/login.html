@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>LifeShot</title>
-    <link rel="stylesheet" href="login.css" />
+    <link rel="stylesheet" href="../css/login.css" />
   </head>
 
   <body>
@@ -30,7 +30,7 @@
 
         <!-- Old username/password inputs are kept (hidden) just to not break your CSS/layout.
              You no longer log in locally from here. -->
-        <!-- ✅ שינוי קטן: מורידים hidden כדי שתוכל לעשות login מהאתר שלך -->
+        <!--  שינוי קטן: מורידים hidden כדי שתוכל לעשות login מהאתר שלך -->
         <div style="text-align: left; width: 100%">
           <label class="label-text">Email</label>
           <input
@@ -52,7 +52,7 @@
           </p>
         </div>
 
-        <!-- ✅ שינוי: במקום cognitoLogin() -> handleLogin() -->
+        <!-- שינוי: במקום cognitoLogin() -> handleLogin() -->
         <button type="button" class="btn-water" onclick="handleLogin()">
           Log In
         </button>
@@ -83,10 +83,11 @@
         "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
 
       window.COGNITO_CLIENT_ID = "64l10nbtrs68ojhpe1am42dafn";
-      window.COGNITO_REDIRECT_URI = "http://localhost:5500/client/index.html";
+      window.COGNITO_REDIRECT_URI =
+        "http://localhost:5500/client/pages/login.html";
       window.COGNITO_SCOPES = "openid email";
     </script>
 
-    <script src="login.js"></script>
+    <script src="../js/login.js"></script>
   </body>
 </html>
