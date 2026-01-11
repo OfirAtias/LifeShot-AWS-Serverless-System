@@ -47,7 +47,7 @@ function isTokenExpired() {
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
-// ✅ IMPORTANT: API Gateway JWT/Cognito authorizer בדרך כלל מצפה ל-ID token
+// IMPORTANT: API Gateway JWT/Cognito authorizer בדרך כלל מצפה ל-ID token
 function getApiBearerToken() {
   const idt = getIdToken();
   if (idt) return idt;
@@ -363,7 +363,7 @@ async function fetchEvents() {
     const res = await apiFetch(`/events`);
     allEvents = await res.json();
 
-    // ✅ התיקון: מגדירים את המשתנה הזה כאן כדי להשתמש בו גם לגלריה וגם לגרף
+    // התיקון: מגדירים את המשתנה הזה כאן כדי להשתמש בו גם לגלריה וגם לגרף
     const dataArr = Array.isArray(allEvents) ? allEvents : [];
 
     const stat = document.getElementById("stat-total");
