@@ -159,11 +159,13 @@ async function runDetectorTest(testName) {
             prefix: "LifeShot/Test2/",
             drowningset_prefix: "LifeShot/DrowningSet/",
             max_frames: 12,
+            single_prefix_only: true,
           }
         : {
             prefix: "LifeShot/Test1/",
             drowningset_prefix: "LifeShot/DrowningSet/",
             max_frames: 8,
+            single_prefix_only: true,
           };
 
     const res = await fetch(DETECTOR_LAMBDA_URL, {
