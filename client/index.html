@@ -31,7 +31,7 @@
 
         <!-- Old username/password inputs are kept (hidden) just to not break your CSS/layout.
              You no longer log in locally from here. -->
-        <!-- ✅ שינוי קטן: מורידים hidden כדי שתוכל לעשות login מהאתר שלך -->
+        <!-- שינוי קטן: מורידים hidden כדי שתוכל לעשות login מהאתר שלך -->
         <div style="text-align: left; width: 100%">
           <label class="label-text">Email</label>
           <input
@@ -53,7 +53,6 @@
           </p>
         </div>
 
-        <!-- ✅ שינוי: במקום cognitoLogin() -> handleLogin() -->
         <button type="button" class="btn-water" onclick="handleLogin()">
           Log In
         </button>
@@ -363,11 +362,10 @@
       window.API_BASE_URL =
         "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
 
-      // ✅ חדש: כתובת ה-Lambda Auth (Function URL)
+      // Lambda Auth (Function URL)
       window.AUTH_BASE_URL =
         "https://55i6njjnjfjtpodemfdpucu5z40wlfqt.lambda-url.us-east-1.on.aws";
 
-      // הכל נשאר כמו שהיה (לא מוחקים שום דבר)
       window.COGNITO_DOMAIN =
         "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
 
