@@ -12,36 +12,38 @@ from botocore.exceptions import ClientError
 # =========================
 # ENV CONFIG
 # =========================
-BUCKET            = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
+BUCKET = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
 
 # Default input prefix (if event doesn't override)
-FRAMES_PREFIX     = os.getenv("FRAMES_PREFIX", "LifeShot/")  # input frames
+FRAMES_PREFIX = os.getenv("FRAMES_PREFIX", "LifeShot/")  # input frames
 
 # ✅ Output: DROWNINGSET
-DROWNINGSET_PREFIX = os.getenv("DROWNINGSET_PREFIX", "LifeShot/DrowningSet/")  # ALL frames: green+red + OK/ALERT
+DROWNINGSET_PREFIX = os.getenv(
+    "DROWNINGSET_PREFIX", "LifeShot/DrowningSet/"
+)  # ALL frames: green+red + OK/ALERT
 
-MAX_FRAMES        = int(os.getenv("MAX_FRAMES", "200"))
-MIN_CONFIDENCE    = float(os.getenv("MIN_CONFIDENCE", "70"))
+MAX_FRAMES = int(os.getenv("MAX_FRAMES", "200"))
+MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "70"))
 
 # Filter tiny/huge boxes (normalized area)
-MIN_BOX_AREA      = float(os.getenv("MIN_BOX_AREA", "0.0015"))
-MAX_BOX_AREA      = float(os.getenv("MAX_BOX_AREA", "0.70"))
+MIN_BOX_AREA = float(os.getenv("MIN_BOX_AREA", "0.0015"))
+MAX_BOX_AREA = float(os.getenv("MAX_BOX_AREA", "0.70"))
 
 # Matching params (used only to pick "where disappeared" AFTER counter drop)
-MATCH_IOU_MIN      = float(os.getenv("MATCH_IOU_MIN", "0.08"))
-MATCH_CENTER_MAX   = float(os.getenv("MATCH_CENTER_MAX", "0.12"))
+MATCH_IOU_MIN = float(os.getenv("MATCH_IOU_MIN", "0.08"))
+MATCH_CENTER_MAX = float(os.getenv("MATCH_CENTER_MAX", "0.12"))
 
-PRESIGN_EXPIRES    = int(os.getenv("PRESIGN_EXPIRES", "3600"))  # seconds (default 1 hour)
+PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))  # seconds
 
 # DynamoDB
-EVENTS_TABLE_NAME  = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
+EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
 # SNS
-SNS_TOPIC_ARN      = os.getenv("SNS_TOPIC_ARN", "")  # set in Lambda env vars
+SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN", "")  # set in Lambda env vars
 
 rekognition = boto3.client("rekognition")
-s3          = boto3.client("s3")
-dynamodb    = boto3.resource("dynamodb")
+s3 = boto3.client("s3")
+dynamodb = boto3.resource("dynamodb")
 events_table = dynamodb.Table(EVENTS_TABLE_NAME)
 sns = boto3.client("sns")
 
@@ -50,11 +52,17 @@ sns = boto3.client("sns")
 # Helpers
 # =========================
 def _resp(code, body_obj):
-    return {"statusCode": code, "headers": {"Content-Type": "application/json"}, "body": json.dumps(body_obj)}
+    return {
+        "statusCode": code,
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(body_obj),
+    }
+
 
 def _is_image_key(key: str) -> bool:
     k = key.lower()
     return k.endswith(".png") or k.endswith(".jpg") or k.endswith(".jpeg")
+
 
 def _basename(key: str) -> str:
     # LifeShot/4.png -> 4
@@ -62,14 +70,17 @@ def _basename(key: str) -> str:
     name = re.sub(r"\.(png|jpg|jpeg)$", "", name, flags=re.IGNORECASE)
     return name
 
+
 def _center(b):
     return (
         float(b.get("Left", 0)) + float(b.get("Width", 0)) / 2.0,
         float(b.get("Top", 0)) + float(b.get("Height", 0)) / 2.0,
     )
 
+
 def _dist(a, b):
-    return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+
 
 def _iou(a, b):
     ax1, ay1 = float(a["Left"]), float(a["Top"])
@@ -88,10 +99,11 @@ def _iou(a, b):
     if inter <= 0:
         return 0.0
 
-    a_area = (ax2-ax1) * (ay2-ay1)
-    b_area = (bx2-bx1) * (by2-by1)
+    a_area = (ax2 - ax1) * (ay2 - ay1)
+    b_area = (bx2 - bx1) * (by2 - by1)
     union = max(1e-9, a_area + b_area - inter)
     return inter / union
+
 
 def _px(box, W, H):
     x1 = int(float(box["Left"]) * W)
@@ -100,6 +112,7 @@ def _px(box, W, H):
     y2 = int((float(box["Top"]) + float(box["Height"])) * H)
     return x1, y1, x2, y2
 
+
 def presign_get_url(bucket, key):
     if not key:
         return None
@@ -107,10 +120,11 @@ def presign_get_url(bucket, key):
         return s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": bucket, "Key": key},
-            ExpiresIn=PRESIGN_EXPIRES
+            ExpiresIn=PRESIGN_EXPIRES,
         )
     except ClientError:
         return None
+
 
 def publish_sns_alert(event_id, created_at_iso, prev_key, warn_key, prev_url, warn_url):
     if not SNS_TOPIC_ARN:
@@ -132,16 +146,12 @@ def publish_sns_alert(event_id, created_at_iso, prev_key, warn_key, prev_url, wa
         f"WarningImageKey: {warn_key or 'N/A'}",
         f"WarningImageUrl: {warn_url or 'N/A'}",
         "",
-        "Open your dashboard to view full details."
+        "Open your dashboard to view full details.",
     ]
     msg = "\n".join(lines)
 
     try:
-        sns.publish(
-            TopicArn=SNS_TOPIC_ARN,
-            Subject=subject,
-            Message=msg
-        )
+        sns.publish(TopicArn=SNS_TOPIC_ARN, Subject=subject, Message=msg)
         print(f"[SNS] Published alert for {event_id}")
     except Exception as e:
         print(f"[SNS ERROR] Failed to publish: {str(e)}")
@@ -155,7 +165,7 @@ def detect_person_boxes(bucket, key):
         res = rekognition.detect_labels(
             Image={"S3Object": {"Bucket": bucket, "Name": key}},
             MaxLabels=25,
-            MinConfidence=MIN_CONFIDENCE
+            MinConfidence=MIN_CONFIDENCE,
         )
 
         boxes = []
@@ -174,13 +184,15 @@ def detect_person_boxes(bucket, key):
                 if area > MAX_BOX_AREA:
                     continue
 
-                boxes.append({
-                    "Left": float(box.get("Left", 0)),
-                    "Top": float(box.get("Top", 0)),
-                    "Width": w,
-                    "Height": h,
-                    "Conf": float(inst.get("Confidence", 0)),
-                })
+                boxes.append(
+                    {
+                        "Left": float(box.get("Left", 0)),
+                        "Top": float(box.get("Top", 0)),
+                        "Width": w,
+                        "Height": h,
+                        "Conf": float(inst.get("Confidence", 0)),
+                    }
+                )
 
         return boxes
 
@@ -282,18 +294,12 @@ def render_png(src_bucket, src_key, title, curr_boxes, missing_boxes, draw_green
 
 
 def put_png_and_presign(bucket, key, png_bytes):
-    s3.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=png_bytes,
-        ContentType="image/png"
-    )
+    s3.put_object(Bucket=bucket, Key=key, Body=png_bytes, ContentType="image/png")
     return presign_get_url(bucket, key)
 
 
 # ===============================
 # List frames — NOW BY LastModified ✅
-# (same function name, minimal change)
 # ===============================
 def list_frames_numeric(bucket, prefix, max_frames):
     paginator = s3.get_paginator("list_objects_v2")
@@ -306,14 +312,13 @@ def list_frames_numeric(bucket, prefix, max_frames):
             if key.endswith("/") or (not _is_image_key(key)):
                 continue
 
-            # ✅ sort key is S3 LastModified (upload/modify time)
             lm = obj.get("LastModified")
             if lm is None:
                 lm = datetime.min.replace(tzinfo=timezone.utc)
 
             frames.append((lm, key))
 
-    # ✅ oldest -> newest (first uploaded scanned first)
+    # oldest -> newest
     frames.sort(key=lambda x: x[0])
 
     keys = [k for _, k in frames]
@@ -323,16 +328,54 @@ def list_frames_numeric(bucket, prefix, max_frames):
 
 
 # =========================
+# ✅ FIX: normalize event for Lambda Function URL
+# (בלי לגעת ב-CORS)
+# =========================
+def _normalize_event(event):
+    """
+    Function URL sends HTTP-shaped event: {"body": "...json..."}
+    We convert it into the exact dict payload you expect: {"prefix": "...", ...}
+    """
+    if not isinstance(event, dict):
+        return {}
+
+    if "body" not in event:
+        # already normal event
+        return event
+
+    body = event.get("body") or "{}"
+
+    # handle base64 just in case
+    if event.get("isBase64Encoded"):
+        try:
+            import base64
+            body = base64.b64decode(body).decode("utf-8")
+        except Exception:
+            body = "{}"
+
+    if isinstance(body, (dict, list)):
+        return body if isinstance(body, dict) else {}
+
+    try:
+        parsed = json.loads(body)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+# =========================
 # Lambda Handler
 # =========================
 def lambda_handler(event, context):
-    prefix             = FRAMES_PREFIX
-    drowningset_prefix = DROWNINGSET_PREFIX
-    max_frames         = MAX_FRAMES
+    # ✅ IMPORTANT FIX:
+    # If you call through Function URL, we must parse event["body"]
+    event = _normalize_event(event)
 
-    # ✅ Scenes support:
-    # You can send event like {"scene": 1} or {"scene": 2}
-    # Or directly set {"prefix": "...", "drowningset_prefix": "..."}
+    prefix = FRAMES_PREFIX
+    drowningset_prefix = DROWNINGSET_PREFIX
+    max_frames = MAX_FRAMES
+
+    # ✅ Scenes support + direct override
     if isinstance(event, dict):
         scene = event.get("scene")
 
@@ -343,6 +386,7 @@ def lambda_handler(event, context):
             prefix = "LifeShot/Test2/"
             drowningset_prefix = "LifeShot/DrowningSet/Test2/"
 
+        # ✅ Client overrides (THIS is what you send from the button)
         prefix = event.get("prefix", prefix)
 
         # Backward compatible: accept both "drowningset_prefix" and old "testingset_prefix"
@@ -353,22 +397,21 @@ def lambda_handler(event, context):
 
         max_frames = int(event.get("max_frames", max_frames))
 
+    # ✅ This guarantees: if you send prefix=LifeShot/Test1/ it will ONLY list that folder.
     frame_keys = list_frames_numeric(BUCKET, prefix, max_frames)
     if not frame_keys:
         return _resp(200, {"status": "NO_FRAMES", "bucket": BUCKET, "prefix": prefix})
 
     outputs = []
-    alerts  = []
+    alerts = []
 
-    prev_key   = None
+    prev_key = None
     prev_boxes = None
     prev_count = None
 
-    # keep previous DrowningSet key (so we can save prevImageKey in the event)
     prev_drowningset_key = None
 
-    # ===== ACTIVE ALERT STATE (based ONLY on COUNTER baseline) =====
-    baseline_count       = None
+    baseline_count = None
     active_missing_boxes = []
     active_from_prev_key = None
 
@@ -391,19 +434,23 @@ def lambda_handler(event, context):
             if drop_by > 0 and (not missing_candidates):
                 missing_candidates = prev_boxes[:] if prev_boxes else []
 
-            active_missing_boxes = pick_top_missing(prev_boxes, curr_boxes, missing_candidates, drop_by)
+            active_missing_boxes = pick_top_missing(
+                prev_boxes, curr_boxes, missing_candidates, drop_by
+            )
             active_from_prev_key = prev_key
 
-            alerts.append({
-                "type": "COUNTER_DROP",
-                "frame_now": key,
-                "prev_frame": prev_key,
-                "baseline_count": baseline_count,
-                "prev_count": prev_count,
-                "curr_count": curr_count,
-                "drop_by": drop_by,
-                "missing_boxes_last_seen": active_missing_boxes
-            })
+            alerts.append(
+                {
+                    "type": "COUNTER_DROP",
+                    "frame_now": key,
+                    "prev_frame": prev_key,
+                    "baseline_count": baseline_count,
+                    "prev_count": prev_count,
+                    "curr_count": curr_count,
+                    "drop_by": drop_by,
+                    "missing_boxes_last_seen": active_missing_boxes,
+                }
+            )
 
         # Clear once recovered
         if baseline_count is not None and curr_count >= baseline_count:
@@ -411,12 +458,18 @@ def lambda_handler(event, context):
             active_missing_boxes = []
             active_from_prev_key = None
 
-        is_alert = (baseline_count is not None and curr_count < baseline_count and len(active_missing_boxes) > 0)
+        is_alert = (
+            baseline_count is not None
+            and curr_count < baseline_count
+            and len(active_missing_boxes) > 0
+        )
 
         status_label = "ALERT" if is_alert else "OK"
-        title = f"{status_label} | Frame: {key} | count={curr_count}" + (f" | baseline={baseline_count}" if baseline_count is not None else "")
+        title = (
+            f"{status_label} | Frame: {key} | count={curr_count}"
+            + (f" | baseline={baseline_count}" if baseline_count is not None else "")
+        )
 
-        # ===== Build DrowningSet image (GREEN + RED) =====
         drowningset_png = render_png(
             src_bucket=BUCKET,
             src_key=key,
@@ -424,7 +477,7 @@ def lambda_handler(event, context):
             curr_boxes=curr_boxes,
             missing_boxes=(active_missing_boxes if is_alert else []),
             draw_green=True,
-            draw_red=True
+            draw_red=True,
         )
 
         drowningset_key = f"{drowningset_prefix}{_basename(key)}_{status_label}.png"
@@ -433,7 +486,6 @@ def lambda_handler(event, context):
         created_event_id = None
 
         if is_alert:
-            # ===== Create Event in DB (warningImageKey points to DROWNINGSET) =====
             created_event_id = f"EVT-{int(time.time())}-{_basename(key)}"
             created_at_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -441,8 +493,6 @@ def lambda_handler(event, context):
                 "eventId": created_event_id,
                 "status": "OPEN",
                 "created_at": created_at_iso,
-
-                # ✅ Client should show this (DrowningSet ALERT image)
                 "warningImageKey": drowningset_key,
             }
             if prev_drowningset_key:
@@ -452,60 +502,62 @@ def lambda_handler(event, context):
             try:
                 events_table.put_item(Item=item)
                 wrote_db = True
-                print(f"[DB] Event created: {created_event_id} -> prev={prev_drowningset_key} warning(DROWNINGSET)={drowningset_key}")
+                print(
+                    f"[DB] Event created: {created_event_id} -> prev={prev_drowningset_key} warning(DROWNINGSET)={drowningset_key}"
+                )
             except Exception as e:
                 print(f"[DB ERROR] Failed to write event to DynamoDB: {str(e)}")
 
-            # ===== SNS Email: send BEFORE/AFTER from DrowningSet =====
             if wrote_db:
-                prev_url_for_sns = presign_get_url(BUCKET, prev_drowningset_key) if prev_drowningset_key else None
+                prev_url_for_sns = (
+                    presign_get_url(BUCKET, prev_drowningset_key)
+                    if prev_drowningset_key
+                    else None
+                )
 
                 publish_sns_alert(
                     event_id=created_event_id,
                     created_at_iso=created_at_iso,
-
-                    # keys/urls of DrowningSet BEFORE/AFTER:
                     prev_key=prev_drowningset_key,
                     warn_key=drowningset_key,
                     prev_url=prev_url_for_sns,
-                    warn_url=drowningset_url
+                    warn_url=drowningset_url,
                 )
 
-        outputs.append({
-            "frame": key,
-            "count": curr_count,
-            "baseline_count": baseline_count,
-            "is_alert": is_alert,
-            "drop_by": drop_by,
+        outputs.append(
+            {
+                "frame": key,
+                "count": curr_count,
+                "baseline_count": baseline_count,
+                "is_alert": is_alert,
+                "drop_by": drop_by,
+                "drowningset_key": drowningset_key,
+                "drowningset_url": drowningset_url,
+                "eventId": created_event_id,
+                "missing_boxes_last_seen": (active_missing_boxes if is_alert else []),
+                "missing_from_prev_frame": active_from_prev_key,
+                "prev_drowningset_key": prev_drowningset_key,
+            }
+        )
 
-            "drowningset_key": drowningset_key,
-            "drowningset_url": drowningset_url,
-
-            "eventId": created_event_id,
-            "missing_boxes_last_seen": (active_missing_boxes if is_alert else []),
-            "missing_from_prev_frame": active_from_prev_key,
-
-            "prev_drowningset_key": prev_drowningset_key,
-        })
-
-        # advance
         prev_key = key
         prev_boxes = curr_boxes
         prev_count = curr_count
-
-        # store current frame drowningset key as "previous" for next loop
         prev_drowningset_key = drowningset_key
 
-    return _resp(200, {
-        "status": "DROWNINGSET_AND_EVENTS_CREATED",
-        "bucket": BUCKET,
-        "frames_prefix": prefix,
-        "drowningset_prefix": drowningset_prefix,
-        "events_table": EVENTS_TABLE_NAME,
-        "sns_topic_arn_set": bool(SNS_TOPIC_ARN),
-        "total_frames": len(frame_keys),
-        "outputs_count": len(outputs),
-        "outputs": outputs,
-        "alerts_count": len(alerts),
-        "alerts": alerts
-    })
+    return _resp(
+        200,
+        {
+            "status": "DROWNINGSET_AND_EVENTS_CREATED",
+            "bucket": BUCKET,
+            "frames_prefix": prefix,
+            "drowningset_prefix": drowningset_prefix,
+            "events_table": EVENTS_TABLE_NAME,
+            "sns_topic_arn_set": bool(SNS_TOPIC_ARN),
+            "total_frames": len(frame_keys),
+            "outputs_count": len(outputs),
+            "outputs": outputs,
+            "alerts_count": len(alerts),
+            "alerts": alerts,
+        },
+    )
