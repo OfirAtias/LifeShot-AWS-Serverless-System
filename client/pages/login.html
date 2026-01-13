@@ -70,23 +70,14 @@
     <!-- ===============================
          CONFIG (used by login.js)
          =============================== -->
-    <script>
-      window.API_BASE_URL =
-        "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
+      <script>
+        // ✅ ה-HTTP API שלך
+        window.API_BASE_URL = "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
 
-      // ✅ חדש: כתובת ה-Lambda Auth (Function URL)
-      window.AUTH_BASE_URL =
-        "https://55i6njjnjfjtpodemfdpucu5z40wlfqt.lambda-url.us-east-1.on.aws";
+        // ✅ AUTH הולך דרך ה-API Gateway (לא Lambda URL)
+        window.AUTH_BASE_URL = window.API_BASE_URL;
+      </script>
 
-      // הכל נשאר כמו שהיה (לא מוחקים שום דבר)
-      window.COGNITO_DOMAIN =
-        "https://us-east-12jgjgvvg3.auth.us-east-1.amazoncognito.com";
-
-      window.COGNITO_CLIENT_ID = "64l10nbtrs68ojhpe1am42dafn";
-      window.COGNITO_REDIRECT_URI =
-        "http://localhost:5500/client/pages/login.html";
-      window.COGNITO_SCOPES = "openid email";
-    </script>
 
     <script src="../js/login.js"></script>
   </body>
