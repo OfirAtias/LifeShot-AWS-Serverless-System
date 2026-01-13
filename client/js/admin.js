@@ -69,6 +69,34 @@ function getSafeUrl(url) {
 }
 
 // ===============================
+// HELPER: Number Counter Animation
+// ===============================
+function animateCounter(element, targetValue, duration = 1500) {
+  if (!element) return;
+
+  const startValue = 0;
+  const startTime = performance.now();
+
+  function update(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+
+    const ease = 1 - Math.pow(1 - progress, 3);
+    const current = Math.floor(ease * targetValue);
+
+    element.innerText = current;
+
+    if (progress < 1) {
+      requestAnimationFrame(update);
+    } else {
+      element.innerText = targetValue;
+    }
+  }
+
+  requestAnimationFrame(update);
+}
+
+// ===============================
 // AUTH (Lambda Auth)
 // ===============================
 async function authMe() {
@@ -196,8 +224,18 @@ async function fetchEvents() {
 
     const dataArr = Array.isArray(allEvents) ? allEvents : [];
 
-    const stat = document.getElementById("stat-total");
-    if (stat) stat.innerText = dataArr.length;
+    const statTotal = document.getElementById("stat-total");
+    if (statTotal) {
+      animateCounter(statTotal, dataArr.length);
+    }
+
+    const statOpen = document.getElementById("stat-open");
+    if (statOpen) {
+      const openCount = dataArr.filter(
+        (e) => normalizeStatus(e.status) === "OPEN"
+      ).length;
+      animateCounter(statOpen, openCount);
+    }
 
     renderGallery(dataArr);
     updateManagerChart(dataArr);
@@ -300,7 +338,7 @@ function filterTable(type) {
 // DEMO PAGE LOGIC
 // ===============================
 function renderDemoPage() {
-  currentLightboxImages = []; // איפוס רשימת התמונות לניווט
+  currentLightboxImages = [];
   renderSingleCamera("demo-container-cam1", "Test1", 8);
   renderSingleCamera("demo-container-cam2", "Test2", 12);
 }
