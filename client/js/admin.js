@@ -3,6 +3,7 @@
 // ===============================
 const API_BASE_URL = "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
 const AUTH_BASE_URL = API_BASE_URL;
+const DETECTOR_LAMBDA_URL = window.DETECTOR_LAMBDA_URL;
 
 // ===============================
 // TOKEN STORAGE (LOCALSTORAGE)
