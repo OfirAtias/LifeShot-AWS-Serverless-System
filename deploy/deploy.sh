@@ -1,8 +1,10 @@
-#!/usr/bin/env bash
+ #!/usr/bin/env bash
 set -euo pipefail
 
 # ============================================================
 # LifeShot Auth Stack Bootstrap (Cognito + Login Lambda + HTTP API)
+# + Creates/Ensures Function URL for Detector Lambda (for client-side demo button)
+#
 # - Creates Cognito User Pool + App Client (no secret)
 # - Creates Groups: Admins, Lifeguards
 # - Creates 2 users + assigns to groups
@@ -17,6 +19,7 @@ set -euo pipefail
 #     /events                 PATCH (JWT Auth)  -> Events Lambda
 # - CORS for API Gateway: AllowOrigins ["*"], AllowHeaders ["authorization","content-type"],
 #   AllowMethods ["GET","POST","PATCH","OPTIONS"], AllowCredentials false
+# - ✅ NEW: Ensures Detector Lambda has a Function URL (Auth NONE) + CORS (POST/OPTIONS)
 #
 # Requirements:
 #   - AWS CLI v2 configured (aws configure)
@@ -27,6 +30,7 @@ set -euo pipefail
 #   STACK_PREFIX=LifeShot
 #   ALLOWED_ORIGIN=http://localhost:5500
 #   EVENTS_LAMBDA_NAME=LifeShot_Api_Handler
+#   DETECTOR_LAMBDA_NAME=LifeShot_detector_logic
 # ============================================================
 
 # -------------------------
@@ -41,6 +45,9 @@ APP_CLIENT_NAME="${APP_CLIENT_NAME:-lifeshot-spa}"
 LOGIN_LAMBDA_NAME="${LOGIN_LAMBDA_NAME:-${STACK_PREFIX}_Login}"
 # ✅ This is the one you already have in AWS that talks to DynamoDB, etc.
 EVENTS_LAMBDA_NAME="${EVENTS_LAMBDA_NAME:-LifeShot_Api_Handler}"
+
+# ✅ NEW: Detector Lambda (the one you want to trigger from the demo page)
+DETECTOR_LAMBDA_NAME="${DETECTOR_LAMBDA_NAME:-LifeShot_detector_logic}"
 
 API_NAME="${API_NAME:-${STACK_PREFIX}HttpApi}"
 
@@ -586,6 +593,55 @@ else
 fi
 
 # -------------------------
+# ✅ 8.5) Ensure DETECTOR Function URL (Auth NONE + CORS)
+# -------------------------
+log "Ensuring Detector Lambda exists + has Function URL: $DETECTOR_LAMBDA_NAME"
+
+DETECTOR_ARN="$(aws lambda get-function --region "$REGION" --function-name "$DETECTOR_LAMBDA_NAME" --query Configuration.FunctionArn --output text 2>/dev/null || true)"
+[[ -z "${DETECTOR_ARN}" || "${DETECTOR_ARN}" == "None" ]] && die "Detector Lambda not found: $DETECTOR_LAMBDA_NAME (create it first)"
+
+# Try to read existing Function URL config
+DETECTOR_FUNCTION_URL="$(aws lambda get-function-url-config \
+  --region "$REGION" \
+  --function-name "$DETECTOR_LAMBDA_NAME" \
+  --query FunctionUrl --output text 2>/dev/null || true)"
+
+# Create or update Function URL config (Auth NONE) + CORS (POST/OPTIONS)
+if [[ -z "${DETECTOR_FUNCTION_URL}" || "${DETECTOR_FUNCTION_URL}" == "None" ]]; then
+  log "Creating Function URL for Detector (Auth NONE)..."
+  DETECTOR_FUNCTION_URL="$(aws lambda create-function-url-config \
+    --region "$REGION" \
+    --function-name "$DETECTOR_LAMBDA_NAME" \
+    --auth-type NONE \
+    --cors "AllowOrigins=['$ALLOWED_ORIGIN','*'],AllowMethods=['POST','OPTIONS'],AllowHeaders=['content-type','authorization'],ExposeHeaders=[],MaxAge=0,AllowCredentials=false" \
+    --query FunctionUrl --output text)"
+else
+  log "Function URL exists, updating CORS/Auth settings..."
+  aws lambda update-function-url-config \
+    --region "$REGION" \
+    --function-name "$DETECTOR_LAMBDA_NAME" \
+    --auth-type NONE \
+    --cors "AllowOrigins=['$ALLOWED_ORIGIN','*'],AllowMethods=['POST','OPTIONS'],AllowHeaders=['content-type','authorization'],ExposeHeaders=[],MaxAge=0,AllowCredentials=false" >/dev/null
+
+  DETECTOR_FUNCTION_URL="$(aws lambda get-function-url-config \
+    --region "$REGION" \
+    --function-name "$DETECTOR_LAMBDA_NAME" \
+    --query FunctionUrl --output text)"
+fi
+
+# For Function URL with AuthType=NONE you must allow public InvokeFunctionUrl (resource-based policy)
+log "Ensuring public permission for Detector Function URL (InvokeFunctionUrl, AuthType=NONE)..."
+aws lambda add-permission \
+  --region "$REGION" \
+  --function-name "$DETECTOR_LAMBDA_NAME" \
+  --statement-id "${STACK_PREFIX}DetectorFunctionUrlPublic" \
+  --action lambda:InvokeFunctionUrl \
+  --principal "*" \
+  --function-url-auth-type NONE >/dev/null 2>&1 || true
+
+log "Detector Function URL: $DETECTOR_FUNCTION_URL"
+
+# -------------------------
 # 9) Create HTTP API (with CORS)
 # -------------------------
 log "Ensuring HTTP API: $API_NAME"
@@ -805,6 +861,8 @@ echo "  Admin:       $ADMIN_EMAIL  (temp pass: $TEMP_PASSWORD) -> $GROUP_ADMINS"
 echo "  Lifeguard:   $GUARD_EMAIL  (temp pass: $TEMP_PASSWORD) -> $GROUP_LIFEGUARDS"
 echo "Login Lambda:  $LOGIN_LAMBDA_NAME"
 echo "Events Lambda: $EVENTS_LAMBDA_NAME"
+echo "Detector Lambda: $DETECTOR_LAMBDA_NAME"
+echo "Detector Function URL: $DETECTOR_FUNCTION_URL"
 echo "HTTP API:      $API_NAME (ApiId: $API_ID)"
 echo "API Base URL:  $API_ENDPOINT"
 echo
@@ -815,4 +873,10 @@ echo "  GET   $API_ENDPOINT/auth/me"
 echo "  POST  $API_ENDPOINT/auth/logout"
 echo "  GET   $API_ENDPOINT/events        (JWT Auth -> Events Lambda)"
 echo "  PATCH $API_ENDPOINT/events        (JWT Auth -> Events Lambda)"
+echo "=============================="
+echo
+echo "CLIENT CONFIG (admin.html):"
+echo "  window.API_BASE_URL = '$API_ENDPOINT';"
+echo "  window.AUTH_BASE_URL = window.API_BASE_URL;"
+echo "  window.DETECTOR_LAMBDA_URL = '$DETECTOR_FUNCTION_URL';"
 echo "=============================="
