@@ -1,16 +1,9 @@
 // ===============================
 // CONFIG
 // ===============================
-const API_BASE_URL =
-  window.API_BASE_URL ||
-  "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
+const API_BASE_URL = "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
+const AUTH_BASE_URL = API_BASE_URL;
 
-const AUTH_BASE_URL =
-  window.AUTH_BASE_URL || "https://YOUR_AUTH_FUNCTION_URL.on.aws";
-
-const DETECTOR_LAMBDA_URL =
-  window.DETECTOR_LAMBDA_URL ||
-  "https://wrc7tihzk4awnumbnngfi7yrfa0bmict.lambda-url.us-east-1.on.aws";
 
 // ===============================
 // TOKEN STORAGE (LOCALSTORAGE)
@@ -36,12 +29,13 @@ function isTokenExpired() {
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
-// ✅ IMPORTANT: API Gateway JWT/Cognito authorizer בדרך כלל מצפה ל-ID token
+// ✅ API Gateway JWT Authorizer צריך Access Token (לא ID token)
 function getApiBearerToken() {
-  const idt = getIdToken();
-  if (idt) return idt;
-  return getAccessToken();
+  const at = getAccessToken();
+  if (at) return at;
+  return getIdToken(); // fallback רק אם אין (לבדיקות)
 }
+
 
 function authHeader() {
   const token = getApiBearerToken();
