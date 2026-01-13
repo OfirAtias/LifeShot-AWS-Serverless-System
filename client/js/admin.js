@@ -4,7 +4,6 @@
 const API_BASE_URL = "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
 const AUTH_BASE_URL = API_BASE_URL;
 
-
 // ===============================
 // TOKEN STORAGE (LOCALSTORAGE)
 // ===============================
@@ -35,7 +34,6 @@ function getApiBearerToken() {
   if (at) return at;
   return getIdToken(); // fallback רק אם אין (לבדיקות)
 }
-
 
 function authHeader() {
   const token = getApiBearerToken();
@@ -212,10 +210,11 @@ function renderGallery(data) {
   if (!container) return;
   container.innerHTML = "";
 
+  currentLightboxImages = [];
+
   if (!Array.isArray(data) || data.length === 0) {
     container.innerHTML = `
       <div class="no-events-message">
-        <div class="no-events-icon">📂</div>
         <h3 class="no-events-title">No Events Found</h3>
         <p class="no-events-sub">The event log is currently empty.</p>
       </div>
@@ -240,6 +239,20 @@ function renderGallery(data) {
     const beforeUrl = evt.prevImageUrl;
     const afterUrl = evt.warningImageUrl;
 
+    let beforeOnClick = "";
+    if (beforeUrl) {
+      const idx = currentLightboxImages.length;
+      currentLightboxImages.push(getSafeUrl(beforeUrl));
+      beforeOnClick = `onclick="openLightboxByIndex(${idx})"`;
+    }
+
+    let afterOnClick = "";
+    if (afterUrl) {
+      const idx = currentLightboxImages.length;
+      currentLightboxImages.push(getSafeUrl(afterUrl));
+      afterOnClick = `onclick="openLightboxByIndex(${idx})"`;
+    }
+
     const card = document.createElement("div");
     card.className = "event-card-item";
 
@@ -255,7 +268,7 @@ function renderGallery(data) {
               beforeUrl
                 ? `<img src="${getSafeUrl(
                     beforeUrl
-                  )}" class="card-img-obj" onclick="openLightbox(this.src)">`
+                  )}" class="card-img-obj" ${beforeOnClick}>`
                 : `<div class="no-img-box">No Image</div>`
             }
          </div>
@@ -265,7 +278,7 @@ function renderGallery(data) {
               afterUrl
                 ? `<img src="${getSafeUrl(
                     afterUrl
-                  )}" class="card-img-obj" style="border: 2px solid #ff4757;" onclick="openLightbox(this.src)">`
+                  )}" class="card-img-obj" style="border: 2px solid #ff4757;" ${afterOnClick}>`
                 : `<div class="no-img-box">No Image</div>`
             }
          </div>
@@ -414,7 +427,7 @@ function updateManagerChart(events) {
       datasets: [
         {
           data: [countToday, countYesterday],
-          backgroundColor: ["#22d3ee", "rgba(255, 255, 255, 0.3)"],
+          backgroundColor: ["#274272", "rgba(255, 255, 255, 0.3)"],
           borderColor: "transparent",
           borderWidth: 0,
           hoverOffset: 4,

@@ -1,11 +1,12 @@
-/* ================= COLOR PALETTE & FONTS ================= */
+/* ================= COLOR PALETTE ================= */
 :root {
-  --water-deep: #0a1e3f;
-  --water-mid: #1e4c7c;
-  --water-bright: #4fa3d1;
+  --deep-navy: #0a1025;
   --text-white: #ffffff;
-  --glass-bg: rgba(10, 30, 63, 0.55); /* זכוכית כחולה כהה ושקופה */
-  --glass-border: rgba(79, 163, 209, 0.3); /* מסגרת תכולה עדינה */
+  --text-gray: #cbd5e1; /* קצת יותר בהיר שייראה טוב על הרקע החדש */
+  /* צבעים חדשים לאנימציית הלוגו */
+  --water-flow-1: #ffffff;
+  --water-flow-2: #4fa3d1; /* תכלת מים */
+  --water-flow-3: #274272; /* כחול עמוק */
 }
 
 * {
@@ -25,131 +26,154 @@ body {
   align-items: center;
   position: relative;
 
-  /* === תמונת הרקע === */
-  /* זו תמונה לדוגמה שמשלבת מים עמוקים ואור מלמעלה */
-  background: url("https://images.unsplash.com/photo-1547623646-0b2c8e338388?q=80&w=2070&auto=format&fit=crop")
-    no-repeat center center/cover;
-
-  /* שכבת הכהיה על התמונה כדי שהטקסט יבלוט */
-  box-shadow: inset 0 0 0 1000px rgba(10, 30, 63, 0.6);
+  /* === תמונת הרקע החדשה === */
+  /* מרכוז מלא כי האלמנט החשוב (הכדור) באמצע */
+  background: url("../images/Background.png") no-repeat center center / cover;
 }
 
-/* ================= THE SCANNER ANIMATION ================= */
-/* זו השכבה שיוצרת את אפקט הסריקה */
-.scan-overlay {
-  position: absolute;
+/* שכבת הפילטר - הכהיתי אותה קצת יותר כדי שהטקסט יקפוץ החוצה */
+body::before {
+  content: "";
+  position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: 1;
-  pointer-events: none; /* מאפשר ללחוץ על הכפתורים מתחת */
-
-  /* יצירת פס אור שזז */
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    rgba(79, 163, 209, 0.1) 40%,
-    /* פס אור תכול עדין */ rgba(79, 163, 209, 0.4) 50%,
-    /* מרכז הפס חזק יותר */ rgba(79, 163, 209, 0.1) 60%,
-    transparent 100%
-  );
-  background-size: 100% 200%; /* גודל כפול כדי לאפשר תנועה */
-  animation: scanDown 8s linear infinite; /* אנימציה איטית */
-  opacity: 0.7;
+  z-index: 0;
+  backdrop-filter: blur(3px); /* טשטוש עדין לרקע */
+  -webkit-backdrop-filter: blur(3px);
+  background: rgba(10, 16, 37, 0.5); /* שכבה כהה חצי שקופה */
 }
 
-@keyframes scanDown {
-  0% {
-    background-position: 0 -100%;
-  }
-  100% {
-    background-position: 0 100%;
-  }
-}
-
-/* ================= MAIN CONTENT (GLASS) ================= */
+/* ================= MAIN CARD ================= */
 .main-container {
-  z-index: 10; /* מעל הסורק */
+  z-index: 10;
   padding: 20px;
   width: 100%;
   display: flex;
   justify-content: center;
 }
 
-.glass-panel {
-  background: var(--glass-bg);
-  backdrop-filter: blur(15px); /* טשטוש חזק של המים מאחור */
-  -webkit-backdrop-filter: blur(15px);
-  border: 1px solid var(--glass-border);
-  border-radius: 20px;
+.glass-panel.dark-theme {
+  /* הפכתי את הכרטיס לקצת יותר שקוף כדי שיראו את הכדור דרכו */
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 24px;
   padding: 60px 50px;
   text-align: center;
-  max-width: 600px;
+  max-width: 550px;
   width: 100%;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
   animation: floatUp 1s ease-out;
 }
 
-/* ================= TYPOGRAPHY ================= */
-/* תיקון: רק אותיות L ו-S גדולות */
-.brand-title {
-  font-size: 3.5rem;
-  font-weight: 900;
-  margin-bottom: 10px;
-  letter-spacing: -1px;
-  /* אפקט טקסט מימי */
-  background: linear-gradient(to right, #ffffff, var(--water-bright));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 10px rgba(79, 163, 209, 0.3));
+/* ================= NEW LOGO STYLE (LIQUID TEXT) ================= */
+.logo-wrapper {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 30px;
+  /* הסרנו את הרקע הישן */
 }
 
+/* מחקנו את ה-logo-waves-bg שהיה כאן */
+
+.brand-title {
+  font-size: 4rem;
+  font-weight: 900;
+  letter-spacing: -1px;
+
+  /* === הקסם של המים בתוך הטקסט === */
+  color: transparent; /* הופך את הטקסט עצמו לשקוף */
+
+  /* יצירת גרדיאנט שנראה כמו מים זורמים */
+  background: linear-gradient(
+    to right,
+    var(--water-flow-1) 20%,
+    var(--water-flow-2) 40%,
+    var(--water-flow-1) 60%,
+    var(--water-flow-3) 80%
+  );
+  background-size: 200% auto; /* מגדיל את הרקע כדי שיוכל לזוז */
+
+  /* חותך את הרקע לפי צורת האותיות */
+  -webkit-background-clip: text;
+  background-clip: text;
+
+  /* האנימציה שמזיזה את המים */
+  animation: liquidText 6s linear infinite;
+
+  /* צל עדין שיבליט את הטקסט מהרקע */
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.3));
+}
+
+/* האנימציה של זרימת המים */
+@keyframes liquidText {
+  to {
+    background-position: 200% center;
+  }
+}
+
+/* ================= TEXT ================= */
 .tagline {
-  font-size: 1.5rem;
-  font-weight: 500;
-  margin-bottom: 20px;
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin-bottom: 15px;
   color: var(--text-white);
 }
 
 .description {
-  font-size: 1rem;
+  font-size: 1.05rem;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.8);
-  margin-bottom: 40px;
+  color: var(--text-gray);
+  margin-bottom: 45px;
   max-width: 450px;
   margin-left: auto;
   margin-right: auto;
 }
 
-/* ================= BUTTON ================= */
-.btn-aqua {
+/* ================= TRANSPARENT GLASS BUTTON ================= */
+.btn-royal {
   display: inline-block;
   text-decoration: none;
-  /* גרדיאנט מים */
-  background: linear-gradient(to right, var(--water-mid), var(--water-bright));
+
+  /* === עיצוב כפתור זכוכית שקוף === */
+  /* רקע שקוף עם גוון כחלחל עדין מאוד */
+  background: rgba(79, 163, 209, 0.15);
+
+  /* אפקט טשטוש בתוך הכפתור עצמו */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  /* מסגרת בהירה ועדינה */
+  border: 1px solid rgba(255, 255, 255, 0.3);
+
   color: var(--text-white);
   font-size: 1.1rem;
   font-weight: 700;
-  padding: 18px 50px;
+  letter-spacing: 1px;
+  padding: 18px 60px;
   border-radius: 50px;
   transition: all 0.3s ease;
-  box-shadow: 0 5px 20px rgba(30, 76, 124, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+
+  /* צל עדין */
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
-.btn-aqua:hover {
+.btn-royal:hover {
   transform: translateY(-3px);
-  box-shadow: 0 10px 30px rgba(79, 163, 209, 0.6);
-  /* הבהרת הכפתור בהובר */
-  filter: brightness(1.2);
+  /* בהובר הכפתור נהיה קצת יותר בהיר ומודגש */
+  background: rgba(79, 163, 209, 0.3);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 15px 40px rgba(79, 163, 209, 0.4);
 }
 
 /* אנימציית כניסה */
 @keyframes floatUp {
   from {
     opacity: 0;
-    transform: translateY(30px);
+    transform: translateY(40px);
   }
   to {
     opacity: 1;
@@ -159,13 +183,13 @@ body {
 
 /* מובייל */
 @media (max-width: 768px) {
-  .glass-panel {
+  .glass-panel.dark-theme {
     padding: 40px 25px;
   }
   .brand-title {
-    font-size: 2.5rem;
+    font-size: 3rem;
   }
   .tagline {
-    font-size: 1.2rem;
+    font-size: 1.3rem;
   }
 }

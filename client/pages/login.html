@@ -6,21 +6,15 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <title>LifeShot</title>
+    <title>LifeShot Auth</title>
     <link rel="stylesheet" href="../css/login.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;700;900&display=swap"
+      rel="stylesheet"
+    />
   </head>
 
   <body>
-    <div class="ocean-background">
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-    </div>
-
     <!-- ===============================
          AUTH (COGNITO HOSTED UI)
          =============================== -->
@@ -46,11 +40,11 @@
             class="input-glass"
             placeholder="Enter password"
           />
-
-          <p class="subtitle-text" style="margin-top: 6px">
-            Secure sign-in powered by Amazon Cognito
-          </p>
         </div>
+
+        <p class="subtitle-text" style="margin-top: 6px">
+          Secure sign-in powered by Amazon Cognito
+        </p>
 
         <!-- שינוי: במקום cognitoLogin() -> handleLogin() -->
         <button type="button" class="btn-water" onclick="handleLogin()">
@@ -70,14 +64,14 @@
     <!-- ===============================
          CONFIG (used by login.js)
          =============================== -->
-      <script>
-        // ✅ ה-HTTP API שלך
-        window.API_BASE_URL = "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
+    <script>
+      // ✅ ה-HTTP API שלך
+      window.API_BASE_URL =
+        "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
 
-        // ✅ AUTH הולך דרך ה-API Gateway (לא Lambda URL)
-        window.AUTH_BASE_URL = window.API_BASE_URL;
-      </script>
-
+      // ✅ AUTH הולך דרך ה-API Gateway (לא Lambda URL)
+      window.AUTH_BASE_URL = window.API_BASE_URL;
+    </script>
 
     <script src="../js/login.js"></script>
   </body>

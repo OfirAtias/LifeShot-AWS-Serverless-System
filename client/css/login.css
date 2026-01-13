@@ -1,318 +1,204 @@
 /* ================= VARIABLES ================= */
 :root {
-  --cyan-400: #22d3ee;
-  --cyan-500: #06b6d4;
-  --text-main: #ffffff;
-  --glass-bg: rgba(255, 255, 255, 0.1);
-  --glass-border: rgba(255, 255, 255, 0.2);
+  --text-white: #ffffff;
+  --text-gray: #cbd5e1;
+  --glass-bg: rgba(15, 23, 42, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.15);
+  --input-bg: rgba(255, 255, 255, 0.07);
+  --water-flow-1: #ffffff;
+  --water-flow-2: #4fa3d1;
+  --water-flow-3: #274272;
 }
+
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+/* ================= BACKGROUND & BODY ================= */
 body {
-  font-family: "Segoe UI", sans-serif;
-  background-image: url("images/Background.jpg");
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
+  font-family: "Montserrat", sans-serif;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  color: white;
+  color: var(--text-white);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  background: url("../images/Background.png") no-repeat center center / cover;
 }
+
 body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.6);
   z-index: -1;
+  background: rgba(10, 16, 37, 0.5);
   backdrop-filter: blur(3px);
-}
-.hidden {
-  display: none !important;
+  -webkit-backdrop-filter: blur(3px);
 }
 
-/* ================= GLOBAL & BACKGROUND ================= */
-body {
-  font-family: "Segoe UI", sans-serif;
-  background-color: #0f172a; 
-  background-image: radial-gradient(
-    circle at 50% 50%,
-    #1e293b 0%,
-    #0f172a 100%
-  );
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
-  color: white;
-  position: relative;
-}
-
-/* אנימציית הבועות ברקע */
-.ocean-background {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  z-index: -1; 
-}
-
-.bubble {
-  position: absolute;
-  bottom: -100px;
-  width: 40px;
-  height: 40px;
-  background: rgba(34, 211, 238, 0.1);
-  border-radius: 50%;
-  opacity: 0.5;
-  animation: rise 15s infinite ease-in;
-}
-
-.bubble:nth-child(1) {
-  left: 10%;
-  width: 80px;
-  height: 80px;
-  animation-duration: 12s;
-  animation-delay: 0s;
-}
-.bubble:nth-child(2) {
-  left: 20%;
-  width: 20px;
-  height: 20px;
-  animation-duration: 18s;
-  animation-delay: 2s;
-}
-.bubble:nth-child(3) {
-  left: 35%;
-  width: 50px;
-  height: 50px;
-  animation-duration: 25s;
-  animation-delay: 4s;
-}
-.bubble:nth-child(4) {
-  left: 50%;
-  width: 90px;
-  height: 90px;
-  animation-duration: 15s;
-  animation-delay: 0s;
-}
-.bubble:nth-child(5) {
-  left: 65%;
-  width: 35px;
-  height: 35px;
-  animation-duration: 20s;
-  animation-delay: 0s;
-}
-.bubble:nth-child(6) {
-  left: 80%;
-  width: 60px;
-  height: 60px;
-  animation-duration: 28s;
-  animation-delay: 5s;
-}
-.bubble:nth-child(7) {
-  left: 90%;
-  width: 45px;
-  height: 45px;
-  animation-duration: 16s;
-  animation-delay: 2s;
-}
-
-@keyframes rise {
-  0% {
-    bottom: -100px;
-    transform: translateX(0);
-  }
-  50% {
-    transform: translateX(50px);
-  }
-  100% {
-    bottom: 100vh;
-    transform: translateX(-50px);
-  }
-}
-
-/* ================= AUTH CARD (HOLOGRAPHIC) ================= */
+/* ================= AUTH CONTAINER ================= */
 .auth-body {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   padding: 20px;
-  position: relative;
-  z-index: 10;
 }
 
+/* ================= GLASS CARD STYLE ================= */
 .auth-card-size {
   position: relative;
-  padding: 60px 40px;
+  padding: 60px 50px;
   width: 100%;
-  max-width: 400px;
+  max-width: 450px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  background: rgba(10, 20, 40, 0.7); 
-  border-radius: 20px;
-  backdrop-filter: blur(25px);
-  box-shadow: 0 0 80px rgba(0, 0, 0, 0.6);
-  overflow: hidden;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+  overflow: visible;
 }
 
-.auth-card-size::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 200%; 
-  height: 200%;
-  background: conic-gradient(
-    transparent,
-    transparent,
-    transparent,
-    #06b6d4 
-  );
-  animation: border-spin 4s linear infinite;
-  transform: translate(-50%, -50%);
-  z-index: -2;
-}
-
+.auth-card-size::before,
 .auth-card-size::after {
-  content: "";
-  position: absolute;
-  inset: 3px; 
-  background: rgba(15, 23, 42, 0.9); 
-  border-radius: 18px;
-  z-index: -1;
+  display: none;
 }
 
-@keyframes border-spin {
-  0% {
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  100% {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-/* ================= LOGO & TEXT ================= */
+/* ================= LOGO (LIQUID TEXT) ================= */
 .water-logo {
-  font-size: 58px;
+  font-size: 3.5rem;
   font-weight: 900;
   margin-bottom: 10px;
-  background: linear-gradient(to right, #22d3ee, #ffffff, #22d3ee);
+  letter-spacing: -1px;
+  color: transparent;
+  background: linear-gradient(
+    to right,
+    var(--water-flow-1) 20%,
+    var(--water-flow-2) 40%,
+    var(--water-flow-1) 60%,
+    var(--water-flow-3) 80%
+  );
   background-size: 200% auto;
-  color: #fff;
   -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: shine 3s linear infinite;
-  filter: drop-shadow(0 0 15px rgba(34, 211, 238, 0.4));
+  background-clip: text;
+  animation: liquidText 6s linear infinite;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.3));
 }
 
-@keyframes shine {
+@keyframes liquidText {
   to {
     background-position: 200% center;
   }
 }
 
 .subtitle-text {
-  color: #94a3b8;
-  font-size: 14px;
-  margin-bottom: 30px;
+  color: var(--text-gray);
+  font-size: 13px;
+  margin-top: 15px;
   letter-spacing: 0.5px;
+  font-weight: 400;
 }
 
 /* ================= INPUTS ================= */
 .label-text {
   align-self: flex-start;
   color: #a5f3fc;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   margin-bottom: 8px;
-  margin-left: 4px;
+  margin-left: 5px;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 
 .input-glass {
   width: 100%;
-  padding: 15px;
-  background: rgba(255, 255, 255, 0.05);
+  padding: 16px;
+  background: var(--input-bg);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  border-radius: 12px;
   color: white;
-  margin-bottom: 20px;
+  margin-bottom: 25px;
   font-size: 16px;
+  font-family: "Montserrat", sans-serif;
   transition: 0.3s;
 }
 
 .input-glass:focus {
-  background: rgba(34, 211, 238, 0.05);
-  border-color: #22d3ee;
-  box-shadow: 0 0 15px rgba(34, 211, 238, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #4fa3d1;
+  box-shadow: 0 0 15px rgba(79, 163, 209, 0.2);
   outline: none;
 }
 
-/* ================= BUTTON ================= */
+.input-glass::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 300;
+}
+
+/* ================= BUTTON (TRANSPARENT GLASS) ================= */
 .btn-water {
   width: 100%;
   padding: 18px;
-  margin-top: 15px;
-  border: none;
-  border-radius: 12px;
-  background: #06b6d4;
-  color: #0f172a; 
-  font-weight: 800;
+  margin-top: 10px;
+  background: rgba(79, 163, 209, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  font-weight: 700;
   font-size: 16px;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
+  font-family: "Montserrat", sans-serif;
+  border-radius: 50px;
   cursor: pointer;
-  box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
   transition: all 0.3s ease;
-  position: relative;
   overflow: hidden;
 }
 
 .btn-water::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.4),
-    transparent
-  );
-  transition: 0.5s;
+  display: none;
 }
 
 .btn-water:hover {
-  background: #22d3ee;
-  box-shadow: 0 0 40px rgba(34, 211, 238, 0.6);
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  background: rgba(79, 163, 209, 0.3);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 15px 30px rgba(79, 163, 209, 0.2);
 }
 
-.btn-water:hover::before {
-  left: 100%;
+.btn-water:active {
+  transform: translateY(-1px);
 }
 
+/* ================= ERROR & LINKS ================= */
 .auth-footer {
-  margin-top: 30px;
+  margin-top: 20px;
   font-size: 13px;
-  color: #64748b;
+  font-weight: 500;
 }
-.auth-footer a {
-  color: #22d3ee;
-  transition: 0.3s;
+
+.hidden {
+  display: none !important;
 }
-.auth-footer a:hover {
-  text-shadow: 0 0 10px #22d3ee;
+
+/* ================= MOBILE ================= */
+@media (max-width: 480px) {
+  .auth-card-size {
+    padding: 40px 25px;
+    width: 95%;
+  }
+  .water-logo {
+    font-size: 2.8rem;
+  }
 }

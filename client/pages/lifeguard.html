@@ -6,158 +6,97 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <title>LifeShot</title>
+    <title>LifeShot - Lifeguard</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="../css/lifeguard.css" />
   </head>
 
   <body>
-    <div class="ocean-background">
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-    </div>
-
-    <!-- ===============================
-         LIFEGUARD DASHBOARD
-         =============================== -->
-    <div id="lifeguard-dashboard" class="wrapper hidden full-screen-mode">
+    <div id="lifeguard-dashboard" class="wrapper full-screen-mode">
       <div class="lifeguard-container">
-        <header class="glass-card header-layout">
+        <header class="glass-header">
           <div class="header-left">
-            <h3 class="water-logo-small">LifeShot</h3>
+            <h3 class="logo-text">LifeShot</h3>
           </div>
           <div class="header-center">
             <h1 class="dashboard-title">LIFEGUARD DASHBOARD</h1>
           </div>
           <div class="header-right">
-            <button class="btn-logout" onclick="logout()">Sign Out</button>
+            <button class="btn-glass-small" onclick="logout()">Sign Out</button>
           </div>
         </header>
 
-        <div
-          style="
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            justify-content: center;
-            padding: 0 20px;
-          "
-        >
-          <div id="no-alerts-state" class="glass-card no-alerts-box">
-            <div class="cyan-spinner"></div>
-            <h2 style="margin: 20px 0 5px 0; font-size: 24px; font-weight: 700">
-              Scanning Live Feed
-            </h2>
-            <p style="margin: 0; color: #cbd5e1; font-size: 14px">
-              Searching for drowning risks...
+        <div class="main-monitor-area">
+          <div id="no-alerts-state" class="scanner-container">
+            <div class="sonar-wrapper">
+              <div class="sonar-emitter">
+                <div class="sonar-wave"></div>
+                <div class="sonar-wave delay-1"></div>
+                <div class="sonar-wave delay-2"></div>
+              </div>
+            </div>
+            <h2 class="status-title">System Active</h2>
+            <p class="status-subtitle">
+              Scanning aquatic zone for potential risks...
             </p>
           </div>
 
           <div id="emergency-overlay" class="emergency-glass hidden">
             <div class="alert-navigation-header">
-              <button class="alert-nav-btn" onclick="prevAlert()">◀</button>
-              <span
-                id="alert-counter"
-                style="font-size: 14px; font-weight: 700; opacity: 0.9"
-                >Alert 1 of 1</span
-              >
-              <button class="alert-nav-btn" onclick="nextAlert()">▶</button>
+              <button class="nav-arrow-btn" onclick="prevAlert()">
+                &#10094;
+              </button>
+              <span id="alert-counter" class="counter-badge">Alert 1 of 1</span>
+              <button class="nav-arrow-btn" onclick="nextAlert()">
+                &#10095;
+              </button>
             </div>
 
-            <div
-              class="alert-top-section"
-              style="
-                display: flex;
-                gap: 15px;
-                justify-content: center;
-                align-items: center;
-                margin-bottom: 5px;
-              "
-            >
-              <span id="alert-icon" style="font-size: 28px">🚨</span>
-              <h3
-                style="
-                  margin: 0;
-                  font-size: 22px;
-                  font-weight: 800;
-                  letter-spacing: 1px;
-                "
-              >
-                DROWNING RISK DETECTED!
-              </h3>
+            <div class="alert-header-row">
+              <span class="alert-icon">🚨</span>
+              <h3 class="alert-title">DROWNING RISK DETECTED</h3>
             </div>
 
             <div id="before-after-carousel">
               <div class="carousel-inner">
                 <div class="alert-img-container">
-                  <div
-                    class="img-label"
-                    style="
-                      font-size: 12px;
-                      opacity: 0.8;
-                      margin-bottom: 6px;
-                      font-weight: 700;
-                      text-align: left;
-                    "
-                  >
-                    BEFORE
+                  <div class="img-label">BEFORE</div>
+                  <div class="img-wrapper">
+                    <img id="img-before" class="alert-img" alt="Before Event" />
                   </div>
-                  <img id="img-before" class="alert-img" />
                 </div>
+
                 <div class="alert-img-container">
-                  <div
-                    class="img-label"
-                    style="
-                      font-size: 12px;
-                      opacity: 0.8;
-                      margin-bottom: 6px;
-                      font-weight: 700;
-                      text-align: left;
-                    "
-                  >
-                    AFTER
+                  <div class="img-label warning-label">AFTER</div>
+                  <div class="img-wrapper warning-border">
+                    <img id="img-after" class="alert-img" alt="After Event" />
                   </div>
-                  <img
-                    id="img-after"
-                    class="alert-img"
-                    style="border: 3px solid #ff4757"
-                  />
                 </div>
               </div>
             </div>
 
-            <div class="data-box-glass">
+            <div class="data-row">
               <div class="data-item">
                 <span class="label-small">Status</span>
-                <span class="value-large">ALERT</span>
+                <span class="value-large">CRITICAL</span>
               </div>
-              <div
-                class="divider-vertical"
-                style="width: 1px; background: rgba(255, 255, 255, 0.2)"
-              ></div>
+              <div class="divider-vertical"></div>
               <div class="data-item">
                 <span class="label-small">Time</span>
                 <span id="display-time" class="value-large">--:--</span>
               </div>
             </div>
 
-            <div
-              style="
-                display: flex;
-                justify-content: space-around;
-                width: 50%;
-                margin-top: 5px;
-              "
-            >
-              <button id="close-btn-id" class="btn-handled">
-                Handled — End Alarm
+            <div class="action-buttons-row">
+              <button id="close-btn-id" class="btn-action confirm">
+                Confirm & Dispatch
               </button>
-              <button id="false-btn-id" class="btn-handled">False alarm</button>
+              <button id="false-btn-id" class="btn-action false">
+                False Alarm
+              </button>
             </div>
           </div>
         </div>
@@ -172,9 +111,6 @@
       </div>
     </div>
 
-    <!-- ===============================
-         LIGHTBOX
-         =============================== -->
     <div id="image-lightbox">
       <div id="lightbox-content">
         <button
@@ -201,14 +137,14 @@
     <!-- ===============================
          CONFIG (used by lifeguard.js)
          =============================== -->
-      <script>
-        // ✅ ה-HTTP API שלך
-        window.API_BASE_URL = "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
+    <script>
+      // ✅ ה-HTTP API שלך
+      window.API_BASE_URL =
+        "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
 
-        // ✅ AUTH הולך דרך ה-API Gateway (לא Lambda URL)
-        window.AUTH_BASE_URL = window.API_BASE_URL;
-      </script>
-
+      // ✅ AUTH הולך דרך ה-API Gateway (לא Lambda URL)
+      window.AUTH_BASE_URL = window.API_BASE_URL;
+    </script>
 
     <script src="../js/lifeguard.js"></script>
   </body>

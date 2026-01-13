@@ -6,49 +6,45 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
-    <title>LifeShot</title>
+    <title>LifeShot - Manager</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700;900&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="../css/admin.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
 
   <body>
-    <div class="ocean-background">
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-      <div class="bubble"></div>
-    </div>
-
-    <!-- ===============================
-         MANAGER DASHBOARD
-         =============================== -->
-    <div id="manager-dashboard" class="wrapper hidden full-screen-mode">
+    <div id="manager-dashboard" class="wrapper full-screen-mode">
       <div class="dashboard-wrapper">
-        <header class="glass-card header-layout">
+        <header class="glass-header">
           <div class="header-left">
             <h2 class="water-logo-small">LifeShot</h2>
           </div>
           <div class="header-center">
-            <h1 class="dashboard-title">MANAGER DASHBOARD</h1>
+            <h1 class="dashboard-title">ADMIN DASHBOARD</h1>
           </div>
-          <div class="header-right" style="gap: 10px">
-            <button class="btn-nav" onclick="showScreen('demo-screen')">
+          <div class="header-right" style="gap: 15px">
+            <button class="btn-glass-nav" onclick="showScreen('demo-screen')">
               Live Demo
             </button>
-            <button class="btn-logout" onclick="logout()">Sign Out</button>
+            <button class="btn-glass-nav logout" onclick="logout()">
+              Sign Out
+            </button>
           </div>
         </header>
 
         <div class="dashboard-grid">
           <div class="left-column">
-            <div class="glass-card panel-container">
+            <div class="glass-panel panel-container">
               <div class="gallery-header">
                 <h3 class="panel-title">Event Log & Evidence</h3>
-                <div style="display: flex; gap: 8px">
-                  <button class="btn-filter" onclick="filterTable('ALL')">
+                <div class="filter-controls">
+                  <button
+                    class="btn-filter active"
+                    onclick="filterTable('ALL')"
+                  >
                     All
                   </button>
                   <button class="btn-filter" onclick="filterTable('OPEN')">
@@ -65,18 +61,18 @@
 
           <div class="right-column">
             <div class="metrics-row-compact">
-              <div class="glass-card metric-card compact">
-                <div class="metric-header"><span>Total Events</span></div>
-                <span class="metric-value small-text" id="stat-total">0</span>
+              <div class="glass-panel metric-card">
+                <div class="metric-header">Total Events</div>
+                <span class="metric-value" id="stat-total">0</span>
               </div>
-              <div class="glass-card metric-card compact">
-                <div class="metric-header">False alarm</div>
-                <span class="metric-value small-text">3s</span>
+              <div class="glass-panel metric-card">
+                <div class="metric-header">Avg Response</div>
+                <span class="metric-value">3s</span>
               </div>
             </div>
 
-            <div class="glass-card chart-card">
-              <div class="metric-header" style="margin-bottom: 10px">
+            <div class="glass-panel chart-card">
+              <div class="metric-header" style="margin-bottom: 15px">
                 Activity: Today vs Yesterday
               </div>
               <div class="chart-wrapper">
@@ -88,46 +84,58 @@
       </div>
     </div>
 
-    <!-- ===============================
-         LIVE DEMO
-         =============================== -->
     <div id="demo-screen" class="wrapper hidden full-screen-mode">
       <div class="dashboard-wrapper">
-        <header class="glass-card header-layout">
+        <header class="glass-header">
           <div class="header-left">
             <h2 class="water-logo-small">LifeShot</h2>
           </div>
           <div class="header-center">
             <h1 class="dashboard-title">LIVE CAMERA FEED</h1>
           </div>
-          <div class="header-right" style="gap: 10px">
-            <button class="btn-nav" onclick="showScreen('manager-dashboard')">
+          <div class="header-right" style="gap: 15px">
+            <button
+              class="btn-glass-nav"
+              onclick="showScreen('manager-dashboard')"
+            >
               Dashboard
             </button>
-            <button class="btn-logout" onclick="logout()">Sign Out</button>
+            <button class="btn-glass-nav logout" onclick="logout()">
+              Sign Out
+            </button>
           </div>
         </header>
 
         <div class="demo-stack-view">
-          <div class="demo-row-card">
-            <h3 class="demo-col-title">CAM 01 (Test 1)</h3>
-            <div id="demo-container-cam1"></div>
+          <div class="glass-panel demo-row-card">
+            <div class="cam-header-row">
+              <h3 class="demo-col-title">CAM 01 (Test 1)</h3>
+              <div class="rec-indicator"><span class="rec-dot"></span>REC</div>
+            </div>
+            <div id="demo-container-cam1" class="cam-grid-container"></div>
 
-            <!-- ✅ NEW: Run Detector Button (Test1) -->
-            <div style="display: flex; justify-content: center; margin-top: 12px">
-              <button class="btn-nav" onclick="runDetectorTest('Test1')">
+            <div class="cam-controls">
+              <button
+                class="btn-action-primary"
+                onclick="runDetectorTest('Test1')"
+              >
                 ▶ Run Detector (Test 1)
               </button>
             </div>
           </div>
 
-          <div class="demo-row-card">
-            <h3 class="demo-col-title">CAM 02 (Test 2)</h3>
-            <div id="demo-container-cam2"></div>
+          <div class="glass-panel demo-row-card">
+            <div class="cam-header-row">
+              <h3 class="demo-col-title">CAM 02 (Test 2)</h3>
+              <div class="rec-indicator"><span class="rec-dot"></span>REC</div>
+            </div>
+            <div id="demo-container-cam2" class="cam-grid-container"></div>
 
-            <!-- ✅ NEW: Run Detector Button (Test2) -->
-            <div style="display: flex; justify-content: center; margin-top: 12px">
-              <button class="btn-nav" onclick="runDetectorTest('Test2')">
+            <div class="cam-controls">
+              <button
+                class="btn-action-primary"
+                onclick="runDetectorTest('Test2')"
+              >
                 ▶ Run Detector (Test 2)
               </button>
             </div>
@@ -136,9 +144,6 @@
       </div>
     </div>
 
-    <!-- ===============================
-         LIGHTBOX
-         =============================== -->
     <div id="image-lightbox">
       <div id="lightbox-content">
         <button
@@ -148,10 +153,8 @@
         >
           &#10094;
         </button>
-
         <button id="lightbox-close">&times;</button>
         <img id="lightbox-image" src="" alt="Zoomed Image" />
-
         <button
           id="lightbox-next"
           class="lightbox-nav-arrow right"
@@ -165,14 +168,14 @@
     <!-- ===============================
          CONFIG (used by admin.js)
          =============================== -->
-      <script>
-        // ✅ ה-HTTP API שלך
-        window.API_BASE_URL = "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
+    <script>
+      // ✅ ה-HTTP API שלך
+      window.API_BASE_URL =
+        "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
 
-        // ✅ AUTH הולך דרך ה-API Gateway (לא Lambda URL)
-        window.AUTH_BASE_URL = window.API_BASE_URL;
-      </script>
-
+      // ✅ AUTH הולך דרך ה-API Gateway (לא Lambda URL)
+      window.AUTH_BASE_URL = window.API_BASE_URL;
+    </script>
 
     <script src="../js/admin.js"></script>
   </body>
