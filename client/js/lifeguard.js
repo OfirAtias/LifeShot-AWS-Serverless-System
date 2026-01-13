@@ -204,15 +204,24 @@ function renderCurrentAlert() {
   const imgBefore = document.getElementById("img-before");
   const imgAfter = document.getElementById("img-after");
 
-  if (imgBefore) imgBefore.src = getSafeUrl(alertData.prevImageUrl);
-  if (imgAfter) imgAfter.src = getSafeUrl(alertData.warningImageUrl);
+  currentLightboxImages = [];
+  const beforeUrl = getSafeUrl(alertData.prevImageUrl);
+  const afterUrl = getSafeUrl(alertData.warningImageUrl);
+
+  currentLightboxImages.push(beforeUrl);
+  currentLightboxImages.push(afterUrl);
+
+  if (imgBefore) {
+    imgBefore.src = beforeUrl;
+    imgBefore.onclick = () => openLightboxByIndex(0);
+  }
+  if (imgAfter) {
+    imgAfter.src = afterUrl;
+    imgAfter.onclick = () => openLightboxByIndex(1);
+  }
 
   const closeBtn = document.getElementById("close-btn-id");
   if (closeBtn) closeBtn.onclick = () => dismissAlert(alertData.eventId);
-
-  const flaseAlarmBtn = document.getElementById("false-btn-id");
-  if (flaseAlarmBtn)
-    flaseAlarmBtn.onclick = () => falseAlert(alertData.eventId);
 }
 
 function nextAlert() {
@@ -237,18 +246,6 @@ async function dismissAlert(eventId) {
       body: JSON.stringify({ eventId }),
     });
     checkLiveAlerts();
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-async function falseAlert(eventId) {
-  try {
-    await apiFetch(`/update-status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ eventId }),
-    });
   } catch (err) {
     console.error(err);
   }

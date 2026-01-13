@@ -388,12 +388,6 @@ body::before {
   box-shadow: 0 5px 15px rgba(255, 255, 255, 0.2);
 }
 
-.btn-action.false {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: #fff;
-}
-
 /* ================= FOOTER ================= */
 .footer-status-pills {
   display: flex;
