@@ -39,7 +39,7 @@
           <div class="left-column">
             <div class="glass-panel panel-container">
               <div class="gallery-header">
-                <h3 class="panel-title">Event Log & Evidence</h3>
+                <h3 class="panel-title">Event Log</h3>
                 <div class="filter-controls">
                   <button
                     class="btn-filter active"
@@ -66,8 +66,8 @@
                 <span class="metric-value" id="stat-total">0</span>
               </div>
               <div class="glass-panel metric-card">
-                <div class="metric-header">Avg Response</div>
-                <span class="metric-value">3s</span>
+                <div class="metric-header">Open Events</div>
+                <span class="metric-value" id="stat-open">0</span>
               </div>
             </div>
 
@@ -176,7 +176,8 @@
       // ✅ AUTH הולך דרך ה-API Gateway (לא Lambda URL)
       window.AUTH_BASE_URL = window.API_BASE_URL;
 
-        window.DETECTOR_LAMBDA_URL ="https://5jrrw4nfy2uknszytkvtqqziia0yygvm.lambda-url.us-east-1.on.aws/";
+      window.DETECTOR_LAMBDA_URL =
+        "https://5jrrw4nfy2uknszytkvtqqziia0yygvm.lambda-url.us-east-1.on.aws/";
     </script>
 
     <script src="../js/admin.js"></script>
