@@ -1,9 +1,10 @@
- #!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # ============================================================
 # LifeShot Auth Stack Bootstrap (Cognito + Login Lambda + HTTP API)
 # + Creates/Ensures Function URL for Detector Lambda (for client-side demo button)
+# + ✅ NEW: SNS Topic + Access Policy + Email subscription + set SNS_TOPIC_ARN env var in Detector Lambda
 #
 # - Creates Cognito User Pool + App Client (no secret)
 # - Creates Groups: Admins, Lifeguards
@@ -19,11 +20,12 @@ set -euo pipefail
 #     /events                 PATCH (JWT Auth)  -> Events Lambda
 # - CORS for API Gateway: AllowOrigins ["*"], AllowHeaders ["authorization","content-type"],
 #   AllowMethods ["GET","POST","PATCH","OPTIONS"], AllowCredentials false
-# - ✅ NEW: Ensures Detector Lambda has a Function URL (Auth NONE) + CORS (POST/OPTIONS)
+# - ✅ Ensures Detector Lambda has a Function URL (Auth NONE) + CORS (POST/OPTIONS)
 #
 # Requirements:
 #   - AWS CLI v2 configured (aws configure)
 #   - node + npm (for packaging Login Lambda)
+#   - python3 (for safe JSON merge of Lambda env vars)
 #
 # Optional env overrides:
 #   AWS_REGION=us-east-1
@@ -46,7 +48,7 @@ LOGIN_LAMBDA_NAME="${LOGIN_LAMBDA_NAME:-${STACK_PREFIX}_Login}"
 # ✅ This is the one you already have in AWS that talks to DynamoDB, etc.
 EVENTS_LAMBDA_NAME="${EVENTS_LAMBDA_NAME:-LifeShot_Api_Handler}"
 
-# ✅ NEW: Detector Lambda (the one you want to trigger from the demo page)
+# ✅ Detector Lambda (the one you want to trigger from the demo page)
 DETECTOR_LAMBDA_NAME="${DETECTOR_LAMBDA_NAME:-LifeShot_detector_logic}"
 
 API_NAME="${API_NAME:-${STACK_PREFIX}HttpApi}"
@@ -64,6 +66,9 @@ TEMP_PASSWORD="${TEMP_PASSWORD:-LifeShot!123}"
 GROUP_ADMINS="Admins"
 GROUP_LIFEGUARDS="Lifeguards"
 
+# ✅ SNS
+SNS_TOPIC_NAME="${SNS_TOPIC_NAME:-LifeShot-Drowning-Alerts}"
+
 # -------------------------
 # Helpers
 # -------------------------
@@ -75,6 +80,7 @@ need() { command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"; }
 need aws
 need zip
 need npm
+need python3
 
 aws sts get-caller-identity --region "$REGION" >/dev/null
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text --region "$REGION")"
@@ -642,6 +648,124 @@ aws lambda add-permission \
 log "Detector Function URL: $DETECTOR_FUNCTION_URL"
 
 # -------------------------
+# ✅ 8.6) SNS: Create Topic + Access Policy + Subscribe Admin + Set SNS_TOPIC_ARN on Detector
+# -------------------------
+log "Ensuring SNS Topic + Access Policy + Email subscription + Detector env var"
+
+SNS_TOPIC_ARN="$(aws sns create-topic \
+  --region "$REGION" \
+  --name "$SNS_TOPIC_NAME" \
+  --query TopicArn --output text)"
+
+log "SNS Topic ARN: $SNS_TOPIC_ARN"
+
+SNS_POLICY_JSON="$(cat <<EOF
+{
+  "Version": "2008-10-17",
+  "Id": "__default_policy_ID",
+  "Statement": [
+    {
+      "Sid": "__default_statement_ID",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "*"
+      },
+      "Action": [
+        "SNS:Publish",
+        "SNS:RemovePermission",
+        "SNS:SetTopicAttributes",
+        "SNS:DeleteTopic",
+        "SNS:ListSubscriptionsByTopic",
+        "SNS:GetTopicAttributes",
+        "SNS:AddPermission",
+        "SNS:Subscribe"
+      ],
+      "Resource": "$SNS_TOPIC_ARN",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceAccount": "$ACCOUNT_ID"
+        }
+      }
+    },
+    {
+      "Sid": "AllowLambdaPublish",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Action": "SNS:Publish",
+      "Resource": "$SNS_TOPIC_ARN",
+      "Condition": {
+        "StringEquals": {
+          "AWS:SourceAccount": "$ACCOUNT_ID"
+        }
+      }
+    }
+  ]
+}
+EOF
+)"
+
+aws sns set-topic-attributes \
+  --region "$REGION" \
+  --topic-arn "$SNS_TOPIC_ARN" \
+  --attribute-name Policy \
+  --attribute-value "$SNS_POLICY_JSON" >/dev/null
+
+log "SNS Access Policy updated."
+
+# Create email subscription (requires manual confirmation in email)
+log "Ensuring SNS email subscription exists (or is pending) for: $ADMIN_EMAIL"
+
+# Avoid duplicate subscribe spam: check existing subscriptions list for this endpoint
+EXISTS_SUB="$(aws sns list-subscriptions-by-topic \
+  --region "$REGION" \
+  --topic-arn "$SNS_TOPIC_ARN" \
+  --query "Subscriptions[?Endpoint=='$ADMIN_EMAIL'].SubscriptionArn | [0]" \
+  --output text 2>/dev/null || true)"
+
+if [[ -z "${EXISTS_SUB}" || "${EXISTS_SUB}" == "None" ]]; then
+  aws sns subscribe \
+    --region "$REGION" \
+    --topic-arn "$SNS_TOPIC_ARN" \
+    --protocol email \
+    --notification-endpoint "$ADMIN_EMAIL" >/dev/null
+  log "SNS subscription created for $ADMIN_EMAIL (check email to CONFIRM)."
+else
+  log "SNS subscription already exists (or pending): $EXISTS_SUB"
+fi
+
+# Set Detector env var SNS_TOPIC_ARN (merge with existing variables)
+log "Setting Detector Lambda env var SNS_TOPIC_ARN (merge-safe)..."
+
+CURRENT_VARS_JSON="$(aws lambda get-function-configuration \
+  --region "$REGION" \
+  --function-name "$DETECTOR_LAMBDA_NAME" \
+  --query 'Environment.Variables' \
+  --output json 2>/dev/null || echo '{}')"
+
+MERGED_VARS_JSON="$(python3 - <<PY
+import json
+raw = r'''$CURRENT_VARS_JSON'''
+try:
+    cur = json.loads(raw) if raw else {}
+except Exception:
+    cur = {}
+if cur is None:
+    cur = {}
+cur["SNS_TOPIC_ARN"] = "$SNS_TOPIC_ARN"
+print(json.dumps(cur))
+PY
+)"
+
+aws lambda update-function-configuration \
+  --region "$REGION" \
+  --function-name "$DETECTOR_LAMBDA_NAME" \
+  --environment "Variables=$MERGED_VARS_JSON" >/dev/null
+
+log "Detector env updated: SNS_TOPIC_ARN=$SNS_TOPIC_ARN"
+
+# -------------------------
 # 9) Create HTTP API (with CORS)
 # -------------------------
 log "Ensuring HTTP API: $API_NAME"
@@ -863,6 +987,8 @@ echo "Login Lambda:  $LOGIN_LAMBDA_NAME"
 echo "Events Lambda: $EVENTS_LAMBDA_NAME"
 echo "Detector Lambda: $DETECTOR_LAMBDA_NAME"
 echo "Detector Function URL: $DETECTOR_FUNCTION_URL"
+echo "SNS Topic:     $SNS_TOPIC_NAME"
+echo "SNS Topic ARN: $SNS_TOPIC_ARN"
 echo "HTTP API:      $API_NAME (ApiId: $API_ID)"
 echo "API Base URL:  $API_ENDPOINT"
 echo
@@ -873,6 +999,11 @@ echo "  GET   $API_ENDPOINT/auth/me"
 echo "  POST  $API_ENDPOINT/auth/logout"
 echo "  GET   $API_ENDPOINT/events        (JWT Auth -> Events Lambda)"
 echo "  PATCH $API_ENDPOINT/events        (JWT Auth -> Events Lambda)"
+echo "=============================="
+echo
+echo "IMPORTANT ✅ SNS:"
+echo "  1) Check $ADMIN_EMAIL inbox and click CONFIRM subscription (required)"
+echo "  2) Detector Lambda env var set: SNS_TOPIC_ARN=$SNS_TOPIC_ARN"
 echo "=============================="
 echo
 echo "CLIENT CONFIG (admin.html):"
