@@ -3,10 +3,8 @@ import json
 import os
 import re
 import math
-import io
 import time
 from datetime import datetime, timezone
-from PIL import Image, ImageDraw
 from botocore.exceptions import ClientError
 
 # =========================
@@ -14,38 +12,32 @@ from botocore.exceptions import ClientError
 # =========================
 BUCKET = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
 
-# Default input prefix (if event doesn't override)
 FRAMES_PREFIX = os.getenv("FRAMES_PREFIX", "LifeShot/")  # input frames
-
-# ✅ Output: DROWNINGSET
-DROWNINGSET_PREFIX = os.getenv(
-    "DROWNINGSET_PREFIX", "LifeShot/DrowningSet/"
-)  # ALL frames: green+red + OK/ALERT
+DROWNINGSET_PREFIX = os.getenv("DROWNINGSET_PREFIX", "LifeShot/DrowningSet/")
 
 MAX_FRAMES = int(os.getenv("MAX_FRAMES", "200"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "70"))
 
-# Filter tiny/huge boxes (normalized area)
 MIN_BOX_AREA = float(os.getenv("MIN_BOX_AREA", "0.0015"))
 MAX_BOX_AREA = float(os.getenv("MAX_BOX_AREA", "0.70"))
 
-# Matching params (used only to pick "where disappeared" AFTER counter drop)
 MATCH_IOU_MIN = float(os.getenv("MATCH_IOU_MIN", "0.08"))
 MATCH_CENTER_MAX = float(os.getenv("MATCH_CENTER_MAX", "0.12"))
 
-PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))  # seconds
+PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))
 
-# DynamoDB
+# (optional) used only for prevImageUrl presign
+# Events lambda already has its own EVENTS_TABLE_NAME + SNS_TOPIC_ARN in env vars
+# so detector does NOT need SNS env at all
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
-# SNS
-SNS_TOPIC_ARN = os.getenv("SNS_TOPIC_ARN", "")  # set in Lambda env vars
+# ✅ Names of the other two Lambdas (matches your env vars screenshots)
+RENDER_LAMBDA_NAME = os.getenv("RENDER_LAMBDA_NAME", "LifeShot_RenderAndS3")
+EVENTS_LAMBDA_NAME = os.getenv("EVENTS_LAMBDA_NAME", "LifeShot_EventsAndSNS")
 
 rekognition = boto3.client("rekognition")
 s3 = boto3.client("s3")
-dynamodb = boto3.resource("dynamodb")
-events_table = dynamodb.Table(EVENTS_TABLE_NAME)
-sns = boto3.client("sns")
+lambda_client = boto3.client("lambda")
 
 
 # =========================
@@ -65,7 +57,6 @@ def _is_image_key(key: str) -> bool:
 
 
 def _basename(key: str) -> str:
-    # LifeShot/4.png -> 4
     name = key.split("/")[-1]
     name = re.sub(r"\.(png|jpg|jpeg)$", "", name, flags=re.IGNORECASE)
     return name
@@ -105,14 +96,6 @@ def _iou(a, b):
     return inter / union
 
 
-def _px(box, W, H):
-    x1 = int(float(box["Left"]) * W)
-    y1 = int(float(box["Top"]) * H)
-    x2 = int((float(box["Left"]) + float(box["Width"])) * W)
-    y2 = int((float(box["Top"]) + float(box["Height"])) * H)
-    return x1, y1, x2, y2
-
-
 def presign_get_url(bucket, key):
     if not key:
         return None
@@ -124,37 +107,6 @@ def presign_get_url(bucket, key):
         )
     except ClientError:
         return None
-
-
-def publish_sns_alert(event_id, created_at_iso, prev_key, warn_key, prev_url, warn_url):
-    if not SNS_TOPIC_ARN:
-        print("[SNS] SNS_TOPIC_ARN is empty -> skipping publish")
-        return
-
-    subject = f"LifeShot ALERT: {event_id}"
-    lines = [
-        "🚨 POSSIBLE DROWNING DETECTED",
-        "",
-        f"EventId: {event_id}",
-        f"CreatedAt: {created_at_iso}",
-        "",
-        "BEFORE (prev):",
-        f"PrevImageKey: {prev_key or 'N/A'}",
-        f"PrevImageUrl: {prev_url or 'N/A'}",
-        "",
-        "AFTER (alert):",
-        f"WarningImageKey: {warn_key or 'N/A'}",
-        f"WarningImageUrl: {warn_url or 'N/A'}",
-        "",
-        "Open your dashboard to view full details.",
-    ]
-    msg = "\n".join(lines)
-
-    try:
-        sns.publish(TopicArn=SNS_TOPIC_ARN, Subject=subject, Message=msg)
-        print(f"[SNS] Published alert for {event_id}")
-    except Exception as e:
-        print(f"[SNS ERROR] Failed to publish: {str(e)}")
 
 
 # =========================
@@ -253,53 +205,15 @@ def pick_top_missing(prev_boxes, curr_boxes, missing_candidates, drop_by):
             if dist < best_dist:
                 best_dist = dist
 
-        score = (1.0 - best_iou) + best_dist  # worse = higher
+        score = (1.0 - best_iou) + best_dist
         scored.append((score, pb))
 
     scored.sort(reverse=True, key=lambda x: x[0])
     return [pb for _, pb in scored[:drop_by]]
 
 
-# =========================
-# Rendering + S3 output
-# =========================
-def render_png(src_bucket, src_key, title, curr_boxes, missing_boxes, draw_green, draw_red):
-    img_bytes = s3.get_object(Bucket=src_bucket, Key=src_key)["Body"].read()
-    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    draw = ImageDraw.Draw(img)
-    W, H = img.size
-
-    # Title bar
-    draw.rectangle([0, 0, W, 58], fill=(0, 0, 0))
-    draw.text((12, 18), title, fill=(255, 255, 255))
-
-    # GREEN: current detections + label PERSON
-    if draw_green:
-        for b in curr_boxes:
-            x1, y1, x2, y2 = _px(b, W, H)
-            draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=4)
-            draw.text((x1 + 6, max(62, y1 - 18)), "PERSON", fill=(0, 255, 0))
-
-    # RED: missing boxes + label POSSIBLE DROWNING!
-    if draw_red and missing_boxes:
-        for mb in missing_boxes:
-            x1, y1, x2, y2 = _px(mb, W, H)
-            draw.rectangle([x1, y1, x2, y2], outline=(255, 0, 0), width=7)
-            draw.text((x1 + 6, max(62, y1 - 18)), "POSSIBLE DROWNING!", fill=(255, 0, 0))
-
-    out_buf = io.BytesIO()
-    img.save(out_buf, format="PNG")
-    out_buf.seek(0)
-    return out_buf.getvalue()
-
-
-def put_png_and_presign(bucket, key, png_bytes):
-    s3.put_object(Bucket=bucket, Key=key, Body=png_bytes, ContentType="image/png")
-    return presign_get_url(bucket, key)
-
-
 # ===============================
-# List frames — NOW BY LastModified ✅
+# List frames — BY LastModified
 # ===============================
 def list_frames_numeric(bucket, prefix, max_frames):
     paginator = s3.get_paginator("list_objects_v2")
@@ -311,16 +225,12 @@ def list_frames_numeric(bucket, prefix, max_frames):
             key = obj["Key"]
             if key.endswith("/") or (not _is_image_key(key)):
                 continue
-
             lm = obj.get("LastModified")
             if lm is None:
                 lm = datetime.min.replace(tzinfo=timezone.utc)
-
             frames.append((lm, key))
 
-    # oldest -> newest
-    frames.sort(key=lambda x: x[0])
-
+    frames.sort(key=lambda x: x[0])  # oldest -> newest
     keys = [k for _, k in frames]
     if max_frames and len(keys) > max_frames:
         keys = keys[:max_frames]
@@ -328,24 +238,16 @@ def list_frames_numeric(bucket, prefix, max_frames):
 
 
 # =========================
-# ✅ FIX: normalize event for Lambda Function URL
-# (בלי לגעת ב-CORS)
+# Normalize event (Function URL)
 # =========================
 def _normalize_event(event):
-    """
-    Function URL sends HTTP-shaped event: {"body": "...json..."}
-    We convert it into the exact dict payload you expect: {"prefix": "...", ...}
-    """
     if not isinstance(event, dict):
         return {}
-
     if "body" not in event:
-        # already normal event
         return event
 
     body = event.get("body") or "{}"
 
-    # handle base64 just in case
     if event.get("isBase64Encoded"):
         try:
             import base64
@@ -353,8 +255,8 @@ def _normalize_event(event):
         except Exception:
             body = "{}"
 
-    if isinstance(body, (dict, list)):
-        return body if isinstance(body, dict) else {}
+    if isinstance(body, dict):
+        return body
 
     try:
         parsed = json.loads(body)
@@ -364,21 +266,42 @@ def _normalize_event(event):
 
 
 # =========================
+# Invoke helpers
+# =========================
+def invoke_render_lambda(payload: dict) -> dict:
+    resp = lambda_client.invoke(
+        FunctionName=RENDER_LAMBDA_NAME,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload).encode("utf-8"),
+    )
+    raw = resp["Payload"].read().decode("utf-8") or "{}"
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"ok": False, "error": "render_lambda_invalid_json", "raw": raw}
+
+
+def invoke_events_lambda(payload: dict) -> dict:
+    resp = lambda_client.invoke(
+        FunctionName=EVENTS_LAMBDA_NAME,
+        InvocationType="Event",  # async
+        Payload=json.dumps(payload).encode("utf-8"),
+    )
+    return {"invoked": True, "status_code": resp.get("StatusCode")}
+
+
+# =========================
 # Lambda Handler
 # =========================
 def lambda_handler(event, context):
-    # ✅ IMPORTANT FIX:
-    # If you call through Function URL, we must parse event["body"]
     event = _normalize_event(event)
 
     prefix = FRAMES_PREFIX
     drowningset_prefix = DROWNINGSET_PREFIX
     max_frames = MAX_FRAMES
 
-    # ✅ Scenes support + direct override
     if isinstance(event, dict):
         scene = event.get("scene")
-
         if scene == 1:
             prefix = "LifeShot/Test1/"
             drowningset_prefix = "LifeShot/DrowningSet/Test1/"
@@ -386,10 +309,8 @@ def lambda_handler(event, context):
             prefix = "LifeShot/Test2/"
             drowningset_prefix = "LifeShot/DrowningSet/Test2/"
 
-        # ✅ Client overrides (THIS is what you send from the button)
         prefix = event.get("prefix", prefix)
 
-        # Backward compatible: accept both "drowningset_prefix" and old "testingset_prefix"
         if "drowningset_prefix" in event:
             drowningset_prefix = event.get("drowningset_prefix", drowningset_prefix)
         elif "testingset_prefix" in event:
@@ -397,7 +318,6 @@ def lambda_handler(event, context):
 
         max_frames = int(event.get("max_frames", max_frames))
 
-    # ✅ This guarantees: if you send prefix=LifeShot/Test1/ it will ONLY list that folder.
     frame_keys = list_frames_numeric(BUCKET, prefix, max_frames)
     if not frame_keys:
         return _resp(200, {"status": "NO_FRAMES", "bucket": BUCKET, "prefix": prefix})
@@ -408,7 +328,6 @@ def lambda_handler(event, context):
     prev_key = None
     prev_boxes = None
     prev_count = None
-
     prev_drowningset_key = None
 
     baseline_count = None
@@ -418,19 +337,15 @@ def lambda_handler(event, context):
     for key in frame_keys:
         curr_boxes = detect_person_boxes(BUCKET, key)
         curr_count = len(curr_boxes)
-
         drop_by = 0
 
-        # Start/Update missing state ONLY when counter drops
         if prev_count is not None and curr_count < prev_count:
             drop_by = prev_count - curr_count
-
             if baseline_count is None:
                 baseline_count = prev_count
 
             missing_candidates = find_missing_boxes(prev_boxes, curr_boxes)
 
-            # FORCE: if counter dropped but no missing found -> choose from prev_boxes anyway
             if drop_by > 0 and (not missing_candidates):
                 missing_candidates = prev_boxes[:] if prev_boxes else []
 
@@ -452,7 +367,6 @@ def lambda_handler(event, context):
                 }
             )
 
-        # Clear once recovered
         if baseline_count is not None and curr_count >= baseline_count:
             baseline_count = None
             active_missing_boxes = []
@@ -470,59 +384,46 @@ def lambda_handler(event, context):
             + (f" | baseline={baseline_count}" if baseline_count is not None else "")
         )
 
-        drowningset_png = render_png(
-            src_bucket=BUCKET,
-            src_key=key,
-            title=title,
-            curr_boxes=curr_boxes,
-            missing_boxes=(active_missing_boxes if is_alert else []),
-            draw_green=True,
-            draw_red=True,
-        )
-
         drowningset_key = f"{drowningset_prefix}{_basename(key)}_{status_label}.png"
-        drowningset_url = put_png_and_presign(BUCKET, drowningset_key, drowningset_png)
+
+        # ✅ call Render lambda (draw + S3 + presign)
+        render_payload = {
+            "bucket": BUCKET,
+            "src_key": key,
+            "out_key": drowningset_key,
+            "title": title,
+            "curr_boxes": curr_boxes,
+            "missing_boxes": (active_missing_boxes if is_alert else []),
+            "presign_expires": PRESIGN_EXPIRES,
+        }
+        render_res = invoke_render_lambda(render_payload)
+        drowningset_url = render_res.get("out_url")
+        render_ok = bool(render_res.get("ok"))
 
         created_event_id = None
 
-        if is_alert:
+        if is_alert and render_ok:
             created_event_id = f"EVT-{int(time.time())}-{_basename(key)}"
             created_at_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-            item = {
+            prev_url_for_sns = (
+                presign_get_url(BUCKET, prev_drowningset_key) if prev_drowningset_key else None
+            )
+
+            # ✅ invoke Events lambda (DDB + SNS)
+            # NOTE: sns_topic_arn REMOVED - EventsAndSNS takes it from its own env vars
+            events_payload = {
                 "eventId": created_event_id,
-                "status": "OPEN",
                 "created_at": created_at_iso,
+                "status": "OPEN",
+                "events_table": EVENTS_TABLE_NAME,  # optional
+                "bucket": BUCKET,
                 "warningImageKey": drowningset_key,
+                "warningImageUrl": drowningset_url,
+                "prevImageKey": prev_drowningset_key,
+                "prevImageUrl": prev_url_for_sns,
             }
-            if prev_drowningset_key:
-                item["prevImageKey"] = prev_drowningset_key
-
-            wrote_db = False
-            try:
-                events_table.put_item(Item=item)
-                wrote_db = True
-                print(
-                    f"[DB] Event created: {created_event_id} -> prev={prev_drowningset_key} warning(DROWNINGSET)={drowningset_key}"
-                )
-            except Exception as e:
-                print(f"[DB ERROR] Failed to write event to DynamoDB: {str(e)}")
-
-            if wrote_db:
-                prev_url_for_sns = (
-                    presign_get_url(BUCKET, prev_drowningset_key)
-                    if prev_drowningset_key
-                    else None
-                )
-
-                publish_sns_alert(
-                    event_id=created_event_id,
-                    created_at_iso=created_at_iso,
-                    prev_key=prev_drowningset_key,
-                    warn_key=drowningset_key,
-                    prev_url=prev_url_for_sns,
-                    warn_url=drowningset_url,
-                )
+            invoke_events_lambda(events_payload)
 
         outputs.append(
             {
@@ -533,6 +434,7 @@ def lambda_handler(event, context):
                 "drop_by": drop_by,
                 "drowningset_key": drowningset_key,
                 "drowningset_url": drowningset_url,
+                "render_ok": render_ok,
                 "eventId": created_event_id,
                 "missing_boxes_last_seen": (active_missing_boxes if is_alert else []),
                 "missing_from_prev_frame": active_from_prev_key,
@@ -552,8 +454,8 @@ def lambda_handler(event, context):
             "bucket": BUCKET,
             "frames_prefix": prefix,
             "drowningset_prefix": drowningset_prefix,
-            "events_table": EVENTS_TABLE_NAME,
-            "sns_topic_arn_set": bool(SNS_TOPIC_ARN),
+            "render_lambda": RENDER_LAMBDA_NAME,
+            "events_lambda": EVENTS_LAMBDA_NAME,
             "total_frames": len(frame_keys),
             "outputs_count": len(outputs),
             "outputs": outputs,

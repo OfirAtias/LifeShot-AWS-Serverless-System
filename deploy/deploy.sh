@@ -1011,3 +1011,4 @@ echo "  window.API_BASE_URL = '$API_ENDPOINT';"
 echo "  window.AUTH_BASE_URL = window.API_BASE_URL;"
 echo "  window.DETECTOR_LAMBDA_URL = '$DETECTOR_FUNCTION_URL';"
 echo "=============================="
+  
