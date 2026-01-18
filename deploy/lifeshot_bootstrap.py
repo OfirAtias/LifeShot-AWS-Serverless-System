@@ -22,14 +22,19 @@ LifeShot Auth Stack Bootstrap (Boto3)
     - EventsAndSNS env vars: SNS_TOPIC_ARN
     - Detector does NOT store SNS_TOPIC_ARN
 
-IMPORTANT:
-- This script uses LabRole by default (no IAM creation in lab environments).
-- If split lambdas (Detector/Render/EventsAndSNS) or Events API lambda don't exist,
-  this script will CREATE placeholders from scratch (with simple Python handlers) so it can build everything from 0.
+NEW IN THIS VERSION ✅
+- S3 bucket AUTO handling:
+  - Tries default bucket lifeshot-pool-images (or FRAMES_BUCKET)
+  - If bucket exists but is NOT writeable (AccessDenied on PutObject), or doesn't exist:
+    -> auto-creates a NEW unique bucket in your account, and uses it.
+- Ensures S3 prefixes (folder markers) (best-effort)
+- Uploads local images into S3 automatically
+- Creates/Ensures DynamoDB table
+- Sets env vars on Lambdas (merge-safe): FRAMES_BUCKET, FRAMES_PREFIX, EVENTS_TABLE_NAME
 
-Requirements on your machine:
+Requirements:
 - python3 + boto3 installed
-- node + npm installed (for packaging login lambda with @aws-sdk/client-cognito-identity-provider)
+- node + npm installed (only if login.zip not present)
 """
 
 import base64
@@ -41,6 +46,7 @@ import sys
 import tempfile
 import time
 import zipfile
+import uuid
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple, Any, List
 
@@ -104,6 +110,17 @@ LAB_ROLE_NAME = os.getenv("LAB_ROLE_NAME", "LabRole")
 LOGIN_RUNTIME = os.getenv("LOGIN_RUNTIME", "nodejs20.x")
 DEFAULT_PY_RUNTIME = os.getenv("DEFAULT_PY_RUNTIME", "python3.11")
 
+# -------------------------
+# S3 + DynamoDB data-plane config
+# -------------------------
+FRAMES_BUCKET = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
+FRAMES_PREFIX = os.getenv("FRAMES_PREFIX", "LifeShot/DrowningSet")
+
+DATASET_TEST1 = os.getenv("DATASET_TEST1", "Test1")
+DATASET_TEST2 = os.getenv("DATASET_TEST2", "Test2")
+
+EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
+
 
 # -------------------------
 # Helpers
@@ -163,7 +180,6 @@ def wait_lambda_active(client_lambda, fn_name: str, timeout_sec: int = 180) -> N
         )
         return
     except Exception:
-        # fallback polling
         t0 = time.time()
         while time.time() - t0 < timeout_sec:
             try:
@@ -206,12 +222,10 @@ def ensure_lambda_permission_invoke(
         code = e.response.get("Error", {}).get("Code", "")
         msg = e.response.get("Error", {}).get("Message", "") or str(e)
 
-        # ✅ Treat "statement id already exists" as success (idempotent)
         if code in ("ResourceConflictException", "EntityAlreadyExistsException"):
             if "already exists" in msg.lower() or "statement id" in msg.lower():
                 log(f"Lambda permission already exists: {fn_name} {statement_id}")
                 return
-
         raise
 
 
@@ -234,8 +248,397 @@ def zip_from_dir(src_dir: str, out_zip: str) -> None:
                 z.write(full, rel)
 
 
+def now_utc_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 # -------------------------
-# Node Login Lambda source (exactly like your bash)
+# NEW: S3 helpers (AUTO bucket creation if not writeable)
+# -------------------------
+def _s3_can_write(s3, bucket: str) -> bool:
+    test_key = f"LifeShot/_bootstrap_write_test_{int(time.time())}.txt"
+    try:
+        s3.put_object(Bucket=bucket, Key=test_key, Body=b"ok")
+        try:
+            s3.delete_object(Bucket=bucket, Key=test_key)
+        except ClientError:
+            pass
+        return True
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in ("AccessDenied", "AllAccessDisabled", "403"):
+            return False
+        return False
+
+def s3_prefix_has_files(s3, bucket: str, prefix: str) -> bool:
+    """Return True if there is at least one real object under prefix."""
+    if not prefix.endswith("/"):
+        prefix += "/"
+    resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=5)
+    contents = resp.get("Contents", []) or []
+    # ignore the folder-marker object itself (if exists)
+    for obj in contents:
+        key = obj.get("Key", "")
+        if key and key != prefix:
+            return True
+    return False
+
+
+def upload_images_to_prefix_if_needed(s3, bucket: str, local_dir: str, prefix: str) -> int:
+    """Upload only if prefix is empty; otherwise skip."""
+    if s3_prefix_has_files(s3, bucket, prefix):
+        log(f"Skip upload (already has files): s3://{bucket}/{prefix}")
+        return 0
+    return upload_images_to_prefix(s3, bucket, local_dir, prefix)
+
+
+def find_existing_writeable_bucket(s3, base_name: str, account_id: str) -> Optional[str]:
+    """
+    Finds an existing bucket created by this script, e.g.
+    lifeshot-pool-images-045179055320-xxxxxx
+    and returns the first one that is writeable.
+    """
+    prefix = f"{base_name}-{account_id}-".lower()
+    try:
+        resp = s3.list_buckets()
+        buckets = [b["Name"] for b in resp.get("Buckets", [])]
+    except ClientError:
+        return None
+
+    candidates = [b for b in buckets if b.lower().startswith(prefix)]
+    # Prefer deterministic order (oldest->newest); doesn't matter much, we just want "one that works"
+    candidates.sort()
+
+    for b in candidates:
+        if _s3_can_write(s3, b):
+            return b
+    return None
+
+
+def ensure_bucket_writeable(s3, desired_bucket: str, region: str, account_id: str) -> str:
+    """
+    Return a bucket that is WRITEABLE:
+    1) If desired exists and writeable -> use it
+    2) If desired is blocked/inaccessible -> try to reuse an existing script-created bucket
+    3) If none found -> create ONE new bucket (unique), and reuse it in future runs
+    """
+    # 1) try desired directly
+    try:
+        s3.head_bucket(Bucket=desired_bucket)
+        log(f"S3 bucket exists: {desired_bucket}")
+        if _s3_can_write(s3, desired_bucket):
+            log(f"S3 bucket is writeable ✅: {desired_bucket}")
+            return desired_bucket
+        log(f"S3 bucket exists but NOT writeable. Will try reuse/create another.")
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in ("404", "NoSuchBucket", "NotFound"):
+            log(f"S3 bucket not found: {desired_bucket} (will try create).")
+            try:
+                if region == "us-east-1":
+                    s3.create_bucket(Bucket=desired_bucket)
+                else:
+                    s3.create_bucket(
+                        Bucket=desired_bucket,
+                        CreateBucketConfiguration={"LocationConstraint": region},
+                    )
+                time.sleep(2)
+                if _s3_can_write(s3, desired_bucket):
+                    log(f"Created and writeable ✅: {desired_bucket}")
+                    return desired_bucket
+                log(f"Created {desired_bucket} but still not writeable.")
+            except ClientError as e2:
+                log(f"Could not create desired bucket {desired_bucket}: {e2}.")
+        else:
+            # AccessDenied/403 etc.
+            log(f"head_bucket failed for {desired_bucket} ({code}).")
+
+    # 2) ✅ REUSE: if we already created a bucket in previous runs, reuse it
+    existing = find_existing_writeable_bucket(s3, desired_bucket, account_id)
+    if existing:
+        log(f"Reusing existing writeable bucket ✅: {existing}")
+        return existing
+
+    # 3) create a new unique bucket (ONLY if none exists)
+    suffix = uuid.uuid4().hex[:6]
+    new_bucket = f"{desired_bucket}-{account_id}-{suffix}".lower()
+
+    log(f"Creating new S3 bucket: {new_bucket}")
+    if region == "us-east-1":
+        s3.create_bucket(Bucket=new_bucket)
+    else:
+        s3.create_bucket(
+            Bucket=new_bucket,
+            CreateBucketConfiguration={"LocationConstraint": region},
+        )
+    time.sleep(2)
+
+    if not _s3_can_write(s3, new_bucket):
+        raise RuntimeError(f"Created bucket but cannot write to it: {new_bucket}")
+
+    log(f"Created new writeable bucket ✅: {new_bucket}")
+    return new_bucket
+
+
+def ensure_s3_prefix_object(s3, bucket: str, prefix: str) -> None:
+    if not prefix.endswith("/"):
+        prefix = prefix + "/"
+    try:
+        s3.head_object(Bucket=bucket, Key=prefix)
+        return
+    except ClientError:
+        pass
+    try:
+        s3.put_object(Bucket=bucket, Key=prefix, Body=b"")
+    except ClientError:
+        pass
+
+
+def find_first_existing_dir(candidates: List[str]) -> Optional[str]:
+    for p in candidates:
+        if os.path.isdir(p):
+            return p
+    return None
+
+
+def list_image_files(dir_path: str) -> List[str]:
+    allowed = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff"}
+    out: List[str] = []
+    for root, _, files in os.walk(dir_path):
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in allowed:
+                out.append(os.path.join(root, f))
+    return out
+
+
+def upload_images_to_prefix(s3, bucket: str, local_dir: str, prefix: str) -> int:
+    files = list_image_files(local_dir)
+    if not files:
+        log(f"No image files found in: {local_dir}")
+        return 0
+
+    if not prefix.endswith("/"):
+        prefix = prefix + "/"
+
+    uploaded = 0
+    for fp in files:
+        key = prefix + os.path.basename(fp)
+        s3.upload_file(fp, bucket, key)
+        uploaded += 1
+    return uploaded
+
+
+def ensure_s3_structure_and_upload(s3, desired_bucket: str, base_prefix: str, here: str, region: str, account_id: str) -> Dict[str, Any]:
+    """
+    Ensures bucket is WRITEABLE (auto-create if needed),
+    creates prefix markers (best-effort),
+    uploads images from deploy/images/Test1 & Test2 into:
+      LifeShot/DrowningSet/Test1/
+      LifeShot/DrowningSet/Test2/
+    """
+    bucket = ensure_bucket_writeable(s3, desired_bucket, region, account_id)
+
+    # Ensure prefix markers (best-effort)
+    want = [
+        "LifeShot/",
+        "LifeShot/DrowningSet/",
+        "LifeShot/DrowningSet/Test1/",
+        "LifeShot/DrowningSet/Test2/",
+    ]
+    for p in want:
+        ensure_s3_prefix_object(s3, bucket, p)
+
+    # Find local deploy folders
+    cand_test1 = [
+        os.path.join(here, "deploy", "images", "Test1"),
+        os.path.join(here, "DEPLOY", "images", "Test1"),
+        os.path.join(here, "images", "Test1"),
+        os.path.join(here, "deploy", "Test1"),
+        os.path.join(here, "DEPLOY", "Test1"),
+    ]
+    cand_test2 = [
+        os.path.join(here, "deploy", "images", "Test2"),
+        os.path.join(here, "DEPLOY", "images", "Test2"),
+        os.path.join(here, "images", "Test2"),
+        os.path.join(here, "deploy", "Test2"),
+        os.path.join(here, "DEPLOY", "Test2"),
+    ]
+
+    dir_test1 = find_first_existing_dir(cand_test1)
+    dir_test2 = find_first_existing_dir(cand_test2)
+
+    uploaded1 = 0
+    uploaded2 = 0
+
+    if dir_test1:
+        uploaded1 = upload_images_to_prefix_if_needed(s3, bucket, dir_test1, "LifeShot/DrowningSet/Test1/")
+        log(f"Uploaded Test1 images: {uploaded1} file(s) from {dir_test1}")
+    else:
+        log("Test1 local folder not found. Looked in: " + ", ".join(cand_test1))
+
+    if dir_test2:  
+        uploaded2 = upload_images_to_prefix_if_needed(s3, bucket, dir_test2, "LifeShot/DrowningSet/Test2/")
+        log(f"Uploaded Test2 images: {uploaded2} file(s) from {dir_test2}")
+    else:
+        log("Test2 local folder not found. Looked in: " + ", ".join(cand_test2))
+
+    return {
+        "bucket": bucket,
+        "uploaded_test1": uploaded1,
+        "uploaded_test2": uploaded2,
+        "s3_prefix_test1": "LifeShot/DrowningSet/Test1/",
+        "s3_prefix_test2": "LifeShot/DrowningSet/Test2/",
+    }
+
+
+# -------------------------
+# DynamoDB helpers
+# -------------------------
+def ensure_dynamodb_table(ddb, table_name: str) -> None:
+    try:
+        ddb.describe_table(TableName=table_name)
+        log(f"DynamoDB table exists: {table_name}")
+        return
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code != "ResourceNotFoundException":
+            raise
+
+    log(f"Creating DynamoDB table: {table_name}")
+    ddb.create_table(
+        TableName=table_name,
+        AttributeDefinitions=[{"AttributeName": "eventId", "AttributeType": "S"}],
+        KeySchema=[{"AttributeName": "eventId", "KeyType": "HASH"}],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    waiter = ddb.get_waiter("table_exists")
+    waiter.wait(TableName=table_name)
+    log(f"Created DynamoDB table: {table_name}")
+
+
+# -------------------------
+# IAM policy for S3 + Dynamo (regular accounts only)
+# -------------------------
+def ensure_role_data_access_policy(
+    iam,
+    role_name: str,
+    region: str,
+    account_id: str,
+    bucket: str,
+    table_name: str,
+) -> None:
+    policy_name = "LifeShotDataAccess"
+    table_arn = f"arn:aws:dynamodb:{region}:{account_id}:table/{table_name}"
+    bucket_arn = f"arn:aws:s3:::{bucket}"
+    bucket_objects_arn = f"arn:aws:s3:::{bucket}/*"
+
+    policy_doc = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {"Sid": "LifeShotS3List", "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": [bucket_arn]},
+            {
+                "Sid": "LifeShotS3Objects",
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                "Resource": [bucket_objects_arn],
+            },
+            {
+                "Sid": "LifeShotDynamo",
+                "Effect": "Allow",
+                "Action": [
+                    "dynamodb:PutItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan",
+                    "dynamodb:DescribeTable",
+                ],
+                "Resource": [table_arn],
+            },
+        ],
+    }
+
+    try:
+        iam.put_role_policy(
+            RoleName=role_name,
+            PolicyName=policy_name,
+            PolicyDocument=json.dumps(policy_doc),
+        )
+        log(f"Updated inline IAM policy on role {role_name}: {policy_name}")
+    except ClientError as e:
+        log(f"Could not attach inline data policy (maybe blocked in lab): {e}")
+
+
+# -------------------------
+# Detect IAM privileges + ensure role in regular accounts
+# -------------------------
+def has_iam_admin_like_permissions(iam) -> bool:
+    try:
+        iam.get_account_authorization_details(MaxItems=1)
+        return True
+    except ClientError:
+        pass
+
+    role_name = f"LifeShotIamProbeRole-{int(time.time())}"
+    assume_role = {
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "lambda.amazonaws.com"},
+            "Action": "sts:AssumeRole"
+        }]
+    }
+    try:
+        iam.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(assume_role),
+            Description="Probe role for LifeShot bootstrap permission detection",
+        )
+        try:
+            iam.delete_role(RoleName=role_name)
+        except ClientError:
+            pass
+        return True
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation"):
+            return False
+        return False
+
+
+def ensure_lambda_execution_role(iam, account_id: str, role_name: str) -> str:
+    assume_role = {
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "lambda.amazonaws.com"},
+            "Action": "sts:AssumeRole"
+        }]
+    }
+
+    try:
+        role = iam.get_role(RoleName=role_name)["Role"]
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") != "NoSuchEntity":
+            raise
+        role = iam.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(assume_role),
+            Description="LifeShot Lambda execution role (created by bootstrap)",
+        )["Role"]
+        time.sleep(2)
+
+    iam.attach_role_policy(
+        RoleName=role_name,
+        PolicyArn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+    )
+
+    return role["Arn"]
+
+
+# -------------------------
+# Node Login Lambda source
 # -------------------------
 LOGIN_MJS = r"""import {
   CognitoIdentityProviderClient,
@@ -243,9 +646,6 @@ LOGIN_MJS = r"""import {
   RespondToAuthChallengeCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 
-// ===============================
-// ENV
-// ===============================
 const REGION = process.env.COGNITO_REGION || "us-east-1";
 const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5500";
@@ -254,9 +654,6 @@ if (!CLIENT_ID) console.warn("Missing env COGNITO_CLIENT_ID");
 
 const cognito = new CognitoIdentityProviderClient({ region: REGION });
 
-// ===============================
-// HELPERS
-// ===============================
 function corsHeaders(origin) {
   const reqOrigin = origin || "";
   const allowOrigin = reqOrigin && reqOrigin === ALLOWED_ORIGIN ? reqOrigin : ALLOWED_ORIGIN;
@@ -318,9 +715,6 @@ function getBearerToken(event) {
   return m ? m[1].trim() : "";
 }
 
-// ===============================
-// ROUTES
-// ===============================
 async function routeLogin(event, origin) {
   const body = parseJsonBody(event);
   const username = String(body.username || "").trim();
@@ -514,22 +908,53 @@ PACKAGE_JSON = {
 # Placeholder Lambda code to allow full "from 0"
 # -------------------------
 def make_placeholder_zip(module_name: str, out_zip: str) -> None:
-    """
-    Creates a tiny python lambda module with lambda_handler(event, context) returning a JSON-like dict.
-    module_name example: 'detector_logic' or 'render_and_s3' or 'events_and_sns'
-    """
     with tempfile.TemporaryDirectory() as td:
         py_path = os.path.join(td, f"{module_name}.py")
-        with open(py_path, "w", encoding="utf-8") as f:
-            f.write(
-                "import json\n"
-                "def lambda_handler(event, context):\n"
-                "    return {\n"
-                "        'statusCode': 200,\n"
-                "        'headers': {'Content-Type': 'application/json'},\n"
-                "        'body': json.dumps({'ok': True, 'module': __name__, 'note': 'PLACEHOLDER - replace with real code'})\n"
-                "    }\n"
-            )
+
+        if module_name == "events_and_sns":
+            with open(py_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "import os, json, time\n"
+                    "import boto3\n"
+                    "TABLE = os.getenv('EVENTS_TABLE_NAME', '')\n"
+                    "ddb = boto3.client('dynamodb')\n"
+                    "def _now():\n"
+                    "    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())\n"
+                    "def lambda_handler(event, context):\n"
+                    "    body = event or {}\n"
+                    "    if isinstance(body, dict) and 'body' in body and isinstance(body['body'], str):\n"
+                    "        try:\n"
+                    "            body = json.loads(body['body'])\n"
+                    "        except Exception:\n"
+                    "            body = event or {}\n"
+                    "    event_id = str(body.get('eventId') or body.get('id') or f'EVT-{int(time.time())}')\n"
+                    "    item = {'eventId': {'S': event_id}, 'created_at': {'S': str(body.get('created_at') or _now())}}\n"
+                    "    if body.get('closedAt') is not None:\n"
+                    "        item['closedAt'] = {'S': str(body.get('closedAt'))}\n"
+                    "    if body.get('prevImageKey') is not None:\n"
+                    "        item['prevImageKey'] = {'S': str(body.get('prevImageKey'))}\n"
+                    "    if body.get('responseSeconds') is not None:\n"
+                    "        try:\n"
+                    "            item['responseSeconds'] = {'N': str(float(body.get('responseSeconds')))}\n"
+                    "        except Exception:\n"
+                    "            pass\n"
+                    "    wrote = False\n"
+                    "    if TABLE:\n"
+                    "        try:\n"
+                    "            ddb.put_item(TableName=TABLE, Item=item)\n"
+                    "            wrote = True\n"
+                    "        except Exception:\n"
+                    "            wrote = False\n"
+                    "    return {'statusCode': 200, 'headers': {'Content-Type': 'application/json'}, 'body': json.dumps({'ok': True, 'module': __name__, 'wroteToDdb': wrote, 'eventId': event_id, 'table': TABLE})}\n"
+                )
+        else:
+            with open(py_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "import json\n"
+                    "def lambda_handler(event, context):\n"
+                    "    return {'statusCode': 200, 'headers': {'Content-Type': 'application/json'}, 'body': json.dumps({'ok': True, 'module': __name__, 'note': 'PLACEHOLDER - replace with real code'})}\n"
+                )
+
         zip_from_dir(td, out_zip)
 
 
@@ -538,14 +963,42 @@ def make_events_api_placeholder_zip(out_zip: str) -> None:
         py_path = os.path.join(td, "lambda_function.py")
         with open(py_path, "w", encoding="utf-8") as f:
             f.write(
-                "import json\n"
+                "import os, json, time\n"
+                "import boto3\n"
+                "TABLE = os.getenv('EVENTS_TABLE_NAME', '')\n"
+                "ddb = boto3.client('dynamodb')\n"
+                "def _now():\n"
+                "    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())\n"
                 "def lambda_handler(event, context):\n"
-                "    # Placeholder for LifeShot_Api_Handler\n"
-                "    return {\n"
-                "        'statusCode': 200,\n"
-                "        'headers': {'Content-Type': 'application/json'},\n"
-                "        'body': json.dumps({'ok': True, 'note': 'PLACEHOLDER /events API'})\n"
-                "    }\n"
+                "    method = (event.get('requestContext', {}).get('http', {}).get('method') if isinstance(event, dict) else None) or (event.get('httpMethod') if isinstance(event, dict) else '')\n"
+                "    body = {}\n"
+                "    try:\n"
+                "        raw = event.get('body') if isinstance(event, dict) else None\n"
+                "        if isinstance(raw, str) and raw:\n"
+                "            body = json.loads(raw)\n"
+                "        elif isinstance(raw, dict):\n"
+                "            body = raw\n"
+                "    except Exception:\n"
+                "        body = {}\n"
+                "    wrote = False\n"
+                "    event_id = str(body.get('eventId') or body.get('id') or f'EVT-{int(time.time())}')\n"
+                "    if TABLE and str(method).upper() == 'PATCH':\n"
+                "        item = {'eventId': {'S': event_id}, 'created_at': {'S': str(body.get('created_at') or _now())}}\n"
+                "        if body.get('closedAt') is not None:\n"
+                "            item['closedAt'] = {'S': str(body.get('closedAt'))}\n"
+                "        if body.get('prevImageKey') is not None:\n"
+                "            item['prevImageKey'] = {'S': str(body.get('prevImageKey'))}\n"
+                "        if body.get('responseSeconds') is not None:\n"
+                "            try:\n"
+                "                item['responseSeconds'] = {'N': str(float(body.get('responseSeconds')))}\n"
+                "            except Exception:\n"
+                "                pass\n"
+                "        try:\n"
+                "            ddb.put_item(TableName=TABLE, Item=item)\n"
+                "            wrote = True\n"
+                "        except Exception:\n"
+                "            wrote = False\n"
+                "    return {'statusCode': 200, 'headers': {'Content-Type': 'application/json'}, 'body': json.dumps({'ok': True, 'note': 'PLACEHOLDER /events API', 'wroteToDdb': wrote, 'table': TABLE, 'eventId': event_id})}\n"
             )
         zip_from_dir(td, out_zip)
 
@@ -578,11 +1031,7 @@ def ensure_user_pool(cognito, user_pool_name: str) -> str:
 
 
 def ensure_app_client(cognito, user_pool_id: str, app_client_name: str) -> str:
-    clients = cognito.list_user_pool_clients(
-        UserPoolId=user_pool_id,
-        MaxResults=60
-    ).get("UserPoolClients", [])
-
+    clients = cognito.list_user_pool_clients(UserPoolId=user_pool_id, MaxResults=60).get("UserPoolClients", [])
     for c in clients:
         if c.get("ClientName") == app_client_name:
             return c["ClientId"]
@@ -631,11 +1080,7 @@ def ensure_user(cognito, user_pool_id: str, email: str, temp_password: str) -> N
 
 
 def add_user_to_group(cognito, user_pool_id: str, email: str, group_name: str) -> None:
-    cognito.admin_add_user_to_group(
-        UserPoolId=user_pool_id,
-        Username=email,
-        GroupName=group_name
-    )
+    cognito.admin_add_user_to_group(UserPoolId=user_pool_id, Username=email, GroupName=group_name)
     log(f"Assigned {email} -> {group_name}")
 
 
@@ -679,7 +1124,6 @@ def ensure_lambda_function(
         ))
         arn = resp["FunctionArn"]
         log(f"Created Lambda: {fn_name} -> {arn}")
-
         wait_lambda_active(client_lambda, fn_name)
         return arn
 
@@ -705,37 +1149,8 @@ def ensure_lambda_function(
     return arn
 
 
-def update_lambda_configuration_only(
-    client_lambda,
-    fn_name: str,
-    role_arn: str,
-    runtime: Optional[str] = None,
-    handler: Optional[str] = None,
-    timeout: Optional[int] = None,
-    memory: Optional[int] = None,
-) -> None:
+def merge_lambda_env_vars(client_lambda, fn_name: str, updates: Dict[str, Optional[str]]) -> None:
     wait_lambda_active(client_lambda, fn_name)
-    kwargs: Dict[str, Any] = {"FunctionName": fn_name, "Role": role_arn}
-    if runtime is not None:
-        kwargs["Runtime"] = runtime
-    if handler is not None:
-        kwargs["Handler"] = handler
-    if timeout is not None:
-        kwargs["Timeout"] = timeout
-    if memory is not None:
-        kwargs["MemorySize"] = memory
-
-    retry_on_conflict(lambda: client_lambda.update_function_configuration(**kwargs))
-    wait_lambda_active(client_lambda, fn_name)
-
-
-def merge_lambda_env_vars(
-    client_lambda,
-    fn_name: str,
-    updates: Dict[str, Optional[str]],
-) -> None:
-    wait_lambda_active(client_lambda, fn_name)
-
     resp = client_lambda.get_function_configuration(FunctionName=fn_name)
     cur = resp.get("Environment", {}).get("Variables", {}) or {}
     merged = merge_env(cur, updates)
@@ -750,9 +1165,10 @@ def merge_lambda_env_vars(
 def ensure_function_url(client_lambda, fn_name: str, allowed_origin: str) -> str:
     wait_lambda_active(client_lambda, fn_name)
 
+    # ✅ Lambda Function URL CORS does NOT accept "OPTIONS" here
     cors_cfg = {
-        "AllowOrigins": ["*"],          # ✅ wildcard ONLY (cannot mix with specific origins)
-        "AllowMethods": ["POST"],       # keep strict to avoid validation issues
+        "AllowOrigins": ["*"],
+        "AllowMethods": ["POST"],  # <-- remove OPTIONS
         "AllowHeaders": ["content-type", "authorization"],
         "ExposeHeaders": [],
         "MaxAge": 0,
@@ -762,7 +1178,6 @@ def ensure_function_url(client_lambda, fn_name: str, allowed_origin: str) -> str
     try:
         resp = client_lambda.get_function_url_config(FunctionName=fn_name)
         url = resp["FunctionUrl"]
-
         retry_on_conflict(lambda: client_lambda.update_function_url_config(
             FunctionName=fn_name,
             AuthType="NONE",
@@ -771,7 +1186,6 @@ def ensure_function_url(client_lambda, fn_name: str, allowed_origin: str) -> str
         wait_lambda_active(client_lambda, fn_name)
         log("Function URL exists, updated CORS/Auth.")
         return url
-
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
             raise
@@ -785,6 +1199,7 @@ def ensure_function_url(client_lambda, fn_name: str, allowed_origin: str) -> str
     url = resp["FunctionUrl"]
     log("Created Function URL for Detector (Auth NONE).")
     return url
+
 
 # -------------------------
 # SNS
@@ -842,11 +1257,7 @@ def ensure_email_subscription(sns, topic_arn: str, email: str) -> None:
                 log(f"SNS subscription already exists (or pending): {s.get('SubscriptionArn')}")
                 return
 
-    sns.subscribe(
-        TopicArn=topic_arn,
-        Protocol="email",
-        Endpoint=email,
-    )
+    sns.subscribe(TopicArn=topic_arn, Protocol="email", Endpoint=email)
     log(f"SNS subscription created for {email} (check email to CONFIRM).")
 
 
@@ -912,7 +1323,7 @@ def ensure_integration(apigw, api_id: str, lambda_arn: str) -> str:
 
 
 def ensure_jwt_authorizer(apigw, api_id: str, client_id: str, issuer: str) -> str:
-    AUTH_NAME = "JWT-Auth"  # ✅ no spaces. Allowed: a-zA-Z0-9._-
+    AUTH_NAME = "JWT-Auth"
 
     auths = apigw.get_authorizers(ApiId=api_id).get("Items", [])
     for a in auths:
@@ -921,10 +1332,7 @@ def ensure_jwt_authorizer(apigw, api_id: str, client_id: str, issuer: str) -> st
             apigw.update_authorizer(
                 ApiId=api_id,
                 AuthorizerId=auth_id,
-                JwtConfiguration={
-                    "Audience": [client_id],
-                    "Issuer": issuer,
-                },
+                JwtConfiguration={"Audience": [client_id], "Issuer": issuer},
             )
             log("Authorizer exists, updated config.")
             return auth_id
@@ -934,24 +1342,14 @@ def ensure_jwt_authorizer(apigw, api_id: str, client_id: str, issuer: str) -> st
         Name=AUTH_NAME,
         AuthorizerType="JWT",
         IdentitySource=["$request.header.Authorization"],
-        JwtConfiguration={
-            "Audience": [client_id],
-            "Issuer": issuer,
-        },
+        JwtConfiguration={"Audience": [client_id], "Issuer": issuer},
     )
     auth_id = resp["AuthorizerId"]
     log(f"Created authorizer: {auth_id}")
     return auth_id
 
 
-def ensure_route(
-    apigw,
-    api_id: str,
-    route_key: str,
-    integration_id: str,
-    authorization_type: str = "NONE",
-    authorizer_id: Optional[str] = None,
-) -> None:
+def ensure_route(apigw, api_id: str, route_key: str, integration_id: str, authorization_type: str = "NONE", authorizer_id: Optional[str] = None) -> None:
     routes = apigw.get_routes(ApiId=api_id).get("Items", [])
     existing = None
     for r in routes:
@@ -987,7 +1385,6 @@ def ensure_route(
 def deploy_api(apigw, api_id: str) -> None:
     apigw.create_deployment(ApiId=api_id)
     log("Deployed API stage.")
-    # tiny buffer for propagation
     time.sleep(2)
 
 
@@ -995,7 +1392,6 @@ def deploy_api(apigw, api_id: str) -> None:
 # Build Login Lambda zip
 # -------------------------
 def build_login_lambda_zip() -> bytes:
-    # Always prefer prebuilt login.zip in the same folder as this script
     here = os.path.dirname(os.path.abspath(__file__))
     prebuilt = os.path.join(here, "login.zip")
 
@@ -1032,11 +1428,12 @@ def build_login_lambda_zip() -> bytes:
 
         return b64_zip_bytes(out_zip)
 
-
 # -------------------------
 # Main
 # -------------------------
 def main() -> None:
+    global FRAMES_BUCKET  # so we can auto-switch bucket if needed
+
     log(f"Region: {REGION}")
 
     sts = safe_client("sts")
@@ -1045,8 +1442,10 @@ def main() -> None:
     client_lambda = safe_client("lambda")
     apigw = safe_client("apigatewayv2")
     sns = safe_client("sns")
+    s3 = safe_client("s3")
+    ddb = safe_client("dynamodb")
 
-    # Validate credentials
+    # ✅ credentials sanity
     try:
         sts.get_caller_identity()
     except ClientError as e:
@@ -1055,16 +1454,85 @@ def main() -> None:
     account_id = get_account_id(sts)
     log(f"Account: {account_id}")
 
-    # LabRole ARN
-    try:
-        role_arn = iam.get_role(RoleName=LAB_ROLE_NAME)["Role"]["Arn"]
-    except ClientError:
-        role_arn = f"arn:aws:iam::{account_id}:role/{LAB_ROLE_NAME}"
-    log(f"Using LAB ROLE for Lambdas: {role_arn}")
+    # ------------------------------------------------------------
+    # ✅ IAM / Role selection (robust)
+    #   - Try to use/create LifeShotLambdaRole if possible
+    #   - If CreateRole is blocked (VocLabs), fallback to LabRole
+    # ------------------------------------------------------------
+    LAMBDA_ROLE_NAME_REGULAR = os.getenv("LAMBDA_ROLE_NAME_REGULAR", "LifeShotLambdaRole")
+
+    role_name_in_use = LAB_ROLE_NAME
+    role_arn: Optional[str] = None
+
+    # Detect ability (but do NOT trust it blindly; we still catch CreateRole failure)
+    can_manage_iam = has_iam_admin_like_permissions(iam)
+
+    if can_manage_iam:
+        log("Detected IAM privileges (regular account/admin). Trying to create/use LifeShotLambdaRole...")
+        try:
+            role_arn = ensure_lambda_execution_role(iam, account_id, LAMBDA_ROLE_NAME_REGULAR)
+            role_name_in_use = LAMBDA_ROLE_NAME_REGULAR
+            log(f"Using Lambda role: {role_arn}")
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            msg = e.response.get("Error", {}).get("Message", "") or str(e)
+
+            # ✅ fallback instead of failing
+            if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation") or "CreateRole" in msg:
+                log("IAM CreateRole is blocked in this environment. Falling back to LabRole (academy style).")
+                can_manage_iam = False
+            else:
+                raise
+
+    if not role_arn:
+        log("Using LabRole (academy style).")
+        role_name_in_use = LAB_ROLE_NAME
+        try:
+            role_arn = iam.get_role(RoleName=LAB_ROLE_NAME)["Role"]["Arn"]
+        except ClientError:
+            role_arn = f"arn:aws:iam::{account_id}:role/{LAB_ROLE_NAME}"
+        log(f"Using LAB ROLE for Lambdas: {role_arn}")
 
     here = os.path.dirname(os.path.abspath(__file__))
 
-    # 1) Cognito User Pool
+    # -------------------------
+    # ✅ S3 auto bucket + upload
+    # -------------------------
+    log("Ensuring S3 bucket + folder structure + uploading images from DEPLOY...")
+    s3_result = ensure_s3_structure_and_upload(
+        s3=s3,
+        desired_bucket=FRAMES_BUCKET,
+        base_prefix=FRAMES_PREFIX,
+        here=here,
+        region=REGION,
+        account_id=account_id,
+    )
+
+    # If we had to create a new bucket, switch FRAMES_BUCKET globally (used later for env vars + summary)
+    if s3_result.get("bucket") and s3_result["bucket"] != FRAMES_BUCKET:
+        log(f"Switching FRAMES_BUCKET -> {s3_result['bucket']}")
+        FRAMES_BUCKET = s3_result["bucket"]
+
+    # -------------------------
+    # DynamoDB table
+    # -------------------------
+    log("Ensuring DynamoDB events table...")
+    ensure_dynamodb_table(ddb, EVENTS_TABLE_NAME)
+
+    # If regular account role, attach data access policy (S3 + Dynamo)
+    if can_manage_iam:
+        ensure_role_data_access_policy(
+            iam=iam,
+            role_name=role_name_in_use,
+            region=REGION,
+            account_id=account_id,
+            bucket=FRAMES_BUCKET,
+            table_name=EVENTS_TABLE_NAME,
+        )
+
+    # -------------------------
+    # Cognito
+    # -------------------------
     log(f"Ensuring Cognito User Pool: {USER_POOL_NAME}")
     user_pool_id = ensure_user_pool(cognito, USER_POOL_NAME)
     user_pool_arn = f"arn:aws:cognito-idp:{REGION}:{account_id}:userpool/{user_pool_id}"
@@ -1073,24 +1541,23 @@ def main() -> None:
     log(f"UserPool ARN: {user_pool_arn}")
     log(f"Issuer: {issuer}")
 
-    # 2) App Client (no secret)
     log(f"Ensuring App Client: {APP_CLIENT_NAME}")
     client_id = ensure_app_client(cognito, user_pool_id, APP_CLIENT_NAME)
     log(f"Client ID: {client_id}")
 
-    # 3) Groups
     log(f"Ensuring groups: {GROUP_ADMINS}, {GROUP_LIFEGUARDS}")
     ensure_group(cognito, user_pool_id, GROUP_ADMINS)
     ensure_group(cognito, user_pool_id, GROUP_LIFEGUARDS)
 
-    # 4) Users + group assignments
     log("Ensuring users exist + group assignments")
     ensure_user(cognito, user_pool_id, ADMIN_EMAIL, TEMP_PASSWORD)
     ensure_user(cognito, user_pool_id, GUARD_EMAIL, TEMP_PASSWORD)
     add_user_to_group(cognito, user_pool_id, ADMIN_EMAIL, GROUP_ADMINS)
     add_user_to_group(cognito, user_pool_id, GUARD_EMAIL, GROUP_LIFEGUARDS)
 
-    # 5) Build + deploy Login Lambda
+    # -------------------------
+    # Login Lambda
+    # -------------------------
     login_zip = build_login_lambda_zip()
     login_env = {
         "COGNITO_REGION": REGION,
@@ -1109,7 +1576,9 @@ def main() -> None:
         env_vars=login_env,
     )
 
-    # 6) Split lambdas: prefer real zips in deploy/ (fallback to placeholders if missing)
+    # -------------------------
+    # Split Lambdas
+    # -------------------------
     log("Ensuring split Lambdas exist (Detector / Render / Events+SNS). Prefer deploy zips, fallback to placeholders if missing...")
 
     det_real = os.path.join(here, "detector_logic.zip")
@@ -1143,23 +1612,43 @@ def main() -> None:
         es_zip_bytes, EVENTS_SNS_TIMEOUT, EVENTS_SNS_MEMORY, env_vars={}
     )
 
-    # 7) SNS topic + policy + subscribe + set env var on Events+SNS lambda
+    # -------------------------
+    # SNS
+    # -------------------------
     log("Ensuring SNS Topic + Access Policy + Email subscription + set SNS_TOPIC_ARN on Events+SNS lambda")
     sns_topic_arn = ensure_sns_topic_and_policy(sns, account_id, SNS_TOPIC_NAME)
     log(f"SNS Topic ARN: {sns_topic_arn}")
     ensure_email_subscription(sns, sns_topic_arn, ADMIN_EMAIL)
 
-    merge_lambda_env_vars(client_lambda, EVENTS_SNS_LAMBDA_NAME, {"SNS_TOPIC_ARN": sns_topic_arn})
+    # -------------------------
+    # Env vars on Lambdas (merge-safe)
+    # -------------------------
+    merge_lambda_env_vars(client_lambda, EVENTS_SNS_LAMBDA_NAME, {
+        "SNS_TOPIC_ARN": sns_topic_arn,
+        "EVENTS_TABLE_NAME": EVENTS_TABLE_NAME,
+        "FRAMES_BUCKET": FRAMES_BUCKET,
+        "FRAMES_PREFIX": FRAMES_PREFIX,
+    })
 
-    # 8) Set Detector env vars (merge-safe) + remove SNS_TOPIC_ARN
     log("Updating Detector env vars (merge-safe): set RENDER_LAMBDA_NAME/EVENTS_LAMBDA_NAME and remove SNS_TOPIC_ARN")
     merge_lambda_env_vars(client_lambda, DETECTOR_LAMBDA_NAME, {
         "RENDER_LAMBDA_NAME": RENDER_LAMBDA_NAME,
         "EVENTS_LAMBDA_NAME": EVENTS_SNS_LAMBDA_NAME,
         "SNS_TOPIC_ARN": None,
+        "FRAMES_BUCKET": FRAMES_BUCKET,
+        "FRAMES_PREFIX": FRAMES_PREFIX,
+        "EVENTS_TABLE_NAME": EVENTS_TABLE_NAME,
     })
 
-    # 9) Ensure Detector Function URL (Auth NONE + CORS)
+    merge_lambda_env_vars(client_lambda, RENDER_LAMBDA_NAME, {
+        "FRAMES_BUCKET": FRAMES_BUCKET,
+        "FRAMES_PREFIX": FRAMES_PREFIX,
+        "EVENTS_TABLE_NAME": EVENTS_TABLE_NAME,
+    })
+
+    # -------------------------
+    # Detector Function URL
+    # -------------------------
     log(f"Ensuring Detector has Function URL: {DETECTOR_LAMBDA_NAME}")
     detector_url = ensure_function_url(client_lambda, DETECTOR_LAMBDA_NAME, ALLOWED_ORIGIN)
 
@@ -1173,9 +1662,12 @@ def main() -> None:
     )
     log(f"Detector Function URL: {detector_url}")
 
-    # 10) Events API Lambda: prefer real api_handler.zip (fallback to placeholder)
+    # -------------------------
+    # Events API Lambda (/events)
+    # -------------------------
     log(f"Ensuring Events API Lambda exists (used by /events): {EVENTS_API_LAMBDA_NAME} (prefer api_handler.zip)")
     events_api_arn = get_lambda_arn(client_lambda, EVENTS_API_LAMBDA_NAME)
+
     if events_api_arn is None:
         api_real = os.path.join(here, "api_handler.zip")
         if os.path.exists(api_real):
@@ -1195,7 +1687,15 @@ def main() -> None:
     else:
         log(f"Events API Lambda exists: {events_api_arn}")
 
-    # 11) Create HTTP API + stage
+    merge_lambda_env_vars(client_lambda, EVENTS_API_LAMBDA_NAME, {
+        "EVENTS_TABLE_NAME": EVENTS_TABLE_NAME,
+        "FRAMES_BUCKET": FRAMES_BUCKET,
+        "FRAMES_PREFIX": FRAMES_PREFIX,
+    })
+
+    # -------------------------
+    # HTTP API (API Gateway v2)
+    # -------------------------
     log(f"Ensuring HTTP API: {API_NAME}")
     api_id = ensure_http_api(apigw, API_NAME)
     ensure_default_stage(apigw, api_id)
@@ -1204,12 +1704,10 @@ def main() -> None:
     api_endpoint = api["ApiEndpoint"]
     log(f"API Endpoint: {api_endpoint}")
 
-    # 12) Integrations
     log("Creating/Ensuring integrations")
     login_integration_id = ensure_integration(apigw, api_id, login_arn)
     events_integration_id = ensure_integration(apigw, api_id, events_api_arn)
 
-    # 13) Lambda invoke permissions for API Gateway
     source_arn = f"arn:aws:execute-api:{REGION}:{account_id}:{api_id}/*/*/*"
     log("Ensuring Lambda invoke permission for API Gateway (Login + Events API)")
 
@@ -1231,13 +1729,10 @@ def main() -> None:
         source_arn=source_arn,
     )
 
-    # 14) JWT Authorizer (for /events only)
     log("Ensuring JWT Authorizer for /events")
     authz_id = ensure_jwt_authorizer(apigw, api_id, client_id, issuer)
 
-    # 15) Routes
     log("Creating routes...")
-
     ensure_route(apigw, api_id, "POST /auth/login", login_integration_id, "NONE", None)
     ensure_route(apigw, api_id, "POST /auth/complete-password", login_integration_id, "NONE", None)
     ensure_route(apigw, api_id, "GET /auth/me", login_integration_id, "NONE", None)
@@ -1246,7 +1741,6 @@ def main() -> None:
     ensure_route(apigw, api_id, "GET /events", events_integration_id, "JWT", authz_id)
     ensure_route(apigw, api_id, "PATCH /events", events_integration_id, "JWT", authz_id)
 
-    # 16) Deploy
     deploy_api(apigw, api_id)
 
     # -------------------------
@@ -1279,14 +1773,35 @@ def main() -> None:
     print(f"  POST  {api_endpoint}/auth/logout")
     print(f"  GET   {api_endpoint}/events        (JWT Auth -> Events API Lambda: {EVENTS_API_LAMBDA_NAME})")
     print(f"  PATCH {api_endpoint}/events        (JWT Auth -> Events API Lambda: {EVENTS_API_LAMBDA_NAME})")
+
+    print("\n==============================")
+    print("S3 ✅")
+    print(f"Bucket USED: {FRAMES_BUCKET}")
+    print("Prefixes (best-effort markers):")
+    print("  LifeShot/")
+    print("  LifeShot/DrowningSet/")
+    print("  LifeShot/DrowningSet/Test1/")
+    print("  LifeShot/DrowningSet/Test2/")
+    print(f"Uploaded images: Test1={s3_result.get('uploaded_test1', 0)}  Test2={s3_result.get('uploaded_test2', 0)}")
+    print("Example keys:")
+    print("  LifeShot/DrowningSet/Test1/<filename>")
+    print("  LifeShot/DrowningSet/Test2/<filename>")
+
+    print("\nDynamoDB ✅")
+    print(f"Table: {EVENTS_TABLE_NAME}")
+    print("Partition key: eventId (String)")
+    print("Stored fields: closedAt, created_at, prevImageKey, responseSeconds")
     print("==============================\n")
+
     print("IMPORTANT ✅ SNS:")
     print(f"  1) Check {ADMIN_EMAIL} inbox and click CONFIRM subscription (required)")
     print(f"  2) Events+SNS Lambda env var set: SNS_TOPIC_ARN={sns_topic_arn}")
-    print("  3) Detector Lambda env vars set:")
-    print(f"       RENDER_LAMBDA_NAME={RENDER_LAMBDA_NAME}")
-    print(f"       EVENTS_LAMBDA_NAME={EVENTS_SNS_LAMBDA_NAME}")
+    print("  3) Data env vars set on lambdas:")
+    print(f"       FRAMES_BUCKET={FRAMES_BUCKET}")
+    print(f"       FRAMES_PREFIX={FRAMES_PREFIX}")
+    print(f"       EVENTS_TABLE_NAME={EVENTS_TABLE_NAME}")
     print("==============================\n")
+
     print("CLIENT CONFIG (admin.html):")
     print(f"  window.API_BASE_URL = '{api_endpoint}';")
     print("  window.AUTH_BASE_URL = window.API_BASE_URL;")
