@@ -3,11 +3,11 @@
 // ===============================
 const API_BASE_URL =
   window.API_BASE_URL ||
-  "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
+  "https://2q66aqqv1c.execute-api.us-east-1.amazonaws.com";
 
-// ✅ ה-Auth Lambda (Function URL) או CloudFront domain אם שמת את ה-Auth מאחורי CF
-const AUTH_BASE_URL =
-  window.AUTH_BASE_URL || "https://YOUR_AUTH_FUNCTION_URL.on.aws";
+// ✅ Auth routes are on the same HTTP API by default
+// (still allows overriding from HTML if you set window.AUTH_BASE_URL)
+const AUTH_BASE_URL = window.AUTH_BASE_URL || API_BASE_URL;
 
 // ===============================
 // TOKEN STORAGE (LOCALSTORAGE)
@@ -48,11 +48,12 @@ function isTokenExpired() {
   return Date.now() > exp - 15_000; // 15s safety
 }
 
-// ✅ חשוב: API Gateway JWT Authorizer מול Cognito בדרך כלל עובד הכי חלק עם ID token
+// ✅ For API Gateway JWT Authorizer: use Access Token (recommended).
+// Fallback to ID token only if missing (debug)
 function getApiBearerToken() {
-  const idt = getIdToken();
-  if (idt) return idt;
-  return getAccessToken();
+  const at = getAccessToken();
+  if (at) return at;
+  return getIdToken();
 }
 
 function authHeader() {
@@ -62,7 +63,7 @@ function authHeader() {
 }
 
 // ===============================
-// AUTH (Lambda Auth - returns tokens in JSON)
+// AUTH (Lambda/Auth routes - returns tokens in JSON)
 // ===============================
 async function authLogin(username, password) {
   const res = await fetch(`${AUTH_BASE_URL}/auth/login`, {
@@ -73,7 +74,7 @@ async function authLogin(username, password) {
 
   const data = await res.json().catch(() => ({}));
 
-  // ✅ אם המשתמש חייב לשנות סיסמה (NEW_PASSWORD_REQUIRED)
+  // ✅ if NEW_PASSWORD_REQUIRED
   if (res.status === 409 && data?.challenge === "NEW_PASSWORD_REQUIRED") {
     return data; // { challenge, session, username, ... }
   }
@@ -96,7 +97,7 @@ async function authCompletePassword(username, session, newPassword) {
   if (!res.ok) {
     throw new Error(data?.message || `Password change failed (${res.status})`);
   }
-  return data; // tokens כמו login
+  return data; // tokens like login
 }
 
 async function authMe() {
@@ -157,10 +158,11 @@ async function handleLogin() {
   try {
     const resp = await authLogin(username, password);
 
-    // ✅ מצב: חייבים לשנות סיסמה
+    // ✅ must change password
     if (resp?.challenge === "NEW_PASSWORD_REQUIRED") {
-      // הכי פשוט: prompt
-      const newPassword = prompt("Your account requires a new password. Enter a new password:");
+      const newPassword = prompt(
+        "Your account requires a new password. Enter a new password:"
+      );
       if (!newPassword) {
         showError("Password change cancelled.");
         return;
@@ -177,7 +179,7 @@ async function handleLogin() {
       return;
     }
 
-    // ✅ מצב רגיל
+    // ✅ normal
     saveTokensFromLoginResponse(resp);
     routeAfterLogin(resp.role);
   } catch (e) {
@@ -207,4 +209,3 @@ function routeAfterLogin(role) {
 document.addEventListener("DOMContentLoaded", async () => {
   // זמנית: לא עושים auto redirect כדי לעצור לופים
 });
-
