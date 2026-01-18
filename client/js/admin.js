@@ -1,9 +1,15 @@
 // ===============================
 // CONFIG
 // ===============================
-const API_BASE_URL = "https://e8no7f3tui.execute-api.us-east-1.amazonaws.com";
+const API_BASE_URL =
+  window.API_BASE_URL ||
+  "https://2q66aqqv1c.execute-api.us-east-1.amazonaws.com";
+
 const AUTH_BASE_URL = API_BASE_URL;
-const DETECTOR_LAMBDA_URL = window.DETECTOR_LAMBDA_URL;
+
+const DETECTOR_LAMBDA_URL =
+  window.DETECTOR_LAMBDA_URL ||
+  "https://u5nmtfgoxmnfwptlv2qwpvinhe0iimro.lambda-url.us-east-1.on.aws/";
 
 // ===============================
 // TOKEN STORAGE (LOCALSTORAGE)
@@ -170,7 +176,7 @@ async function logout() {
 }
 
 // ===============================
-// ✅ NEW: RUN DETECTOR (LifeShot-Detector Lambda Function URL)
+// ✅ RUN DETECTOR (LifeShot-Detector Lambda Function URL)
 // ===============================
 async function runDetectorTest(testName) {
   try {
@@ -189,16 +195,24 @@ async function runDetectorTest(testName) {
             single_prefix_only: true,
           };
 
+    // ✅ Avoid CORS preflight:
+    // - no Authorization header
+    // - no application/json content-type
     const res = await fetch(DETECTOR_LAMBDA_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${getApiBearerToken()}`,
+        "Content-Type": "text/plain;charset=UTF-8",
       },
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json().catch(() => ({}));
+    const text = await res.text();
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
 
     if (!res.ok) {
       console.error("Detector failed:", res.status, data);
