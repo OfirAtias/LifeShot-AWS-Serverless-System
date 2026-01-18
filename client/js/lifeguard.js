@@ -3,10 +3,9 @@
 // ===============================
 const API_BASE_URL =
   window.API_BASE_URL ||
-  "https://zat8d5ozy1.execute-api.us-east-1.amazonaws.com";
+  "https://2q66aqqv1c.execute-api.us-east-1.amazonaws.com";
 
-const AUTH_BASE_URL =
-  window.AUTH_BASE_URL || "https://YOUR_AUTH_FUNCTION_URL.on.aws";
+const AUTH_BASE_URL = window.AUTH_BASE_URL || API_BASE_URL;
 
 // ===============================
 // TOKEN STORAGE (LOCALSTORAGE)
