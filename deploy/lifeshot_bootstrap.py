@@ -39,6 +39,7 @@ Requirements:
 
 import base64
 import json
+import mimetypes
 import os
 import shutil
 import subprocess
@@ -91,6 +92,7 @@ EVENTS_SNS_TIMEOUT = int(os.getenv("EVENTS_SNS_TIMEOUT", "15"))
 API_NAME = os.getenv("API_NAME", f"{STACK_PREFIX}HttpApi")
 
 ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "http://localhost:5500")
+ALLOWED_ORIGIN_ENV_SET = "ALLOWED_ORIGIN" in os.environ
 
 # Users to create
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "lifeguard647@gmail.com")
@@ -120,6 +122,16 @@ DATASET_TEST1 = os.getenv("DATASET_TEST1", "Test1")
 DATASET_TEST2 = os.getenv("DATASET_TEST2", "Test2")
 
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
+
+
+# -------------------------
+# Frontend (S3 static website)
+# -------------------------
+FRONTEND_BUCKET_NAME = os.getenv("FRONTEND_BUCKET_NAME", "lifeshotweb")
+FRONTEND_DIR = os.getenv("FRONTEND_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "client"))
+
+# CORS for the frontend bucket itself (not API Gateway)
+FRONTEND_CORS_ALLOWED_ORIGINS = os.getenv("FRONTEND_CORS_ALLOWED_ORIGINS", "*")
 
 
 # -------------------------
@@ -250,6 +262,162 @@ def zip_from_dir(src_dir: str, out_zip: str) -> None:
 
 def now_utc_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+# -------------------------
+# NEW: Frontend S3 static website hosting deploy
+# -------------------------
+def _parse_csv_env(value: str) -> List[str]:
+    items = [x.strip() for x in str(value or "").split(",")]
+    return [x for x in items if x]
+
+
+def ensure_frontend_bucket_exists(s3, bucket: str, region: str) -> None:
+    try:
+        s3.head_bucket(Bucket=bucket)
+        log(f"Frontend bucket exists: {bucket}")
+        return
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code not in ("404", "NoSuchBucket", "NotFound"):
+            # Could be 403 if bucket exists in another account
+            raise
+
+    log(f"Creating frontend bucket: {bucket}")
+    if region == "us-east-1":
+        s3.create_bucket(Bucket=bucket)
+    else:
+        s3.create_bucket(
+            Bucket=bucket,
+            CreateBucketConfiguration={"LocationConstraint": region},
+        )
+    time.sleep(2)
+
+
+def ensure_frontend_public_access(s3, bucket: str) -> None:
+    # Disable Block Public Access (all flags false)
+    s3.put_public_access_block(
+        Bucket=bucket,
+        PublicAccessBlockConfiguration={
+            "BlockPublicAcls": False,
+            "IgnorePublicAcls": False,
+            "BlockPublicPolicy": False,
+            "RestrictPublicBuckets": False,
+        },
+    )
+
+    # Public read bucket policy
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "PublicReadGetObject",
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": ["s3:GetObject"],
+                "Resource": [f"arn:aws:s3:::{bucket}/*"],
+            }
+        ],
+    }
+    s3.put_bucket_policy(Bucket=bucket, Policy=json.dumps(policy))
+
+
+def ensure_frontend_website_hosting(s3, bucket: str) -> None:
+    s3.put_bucket_website(
+        Bucket=bucket,
+        WebsiteConfiguration={
+            "IndexDocument": {"Suffix": "index.html"},
+            "ErrorDocument": {"Key": "index.html"},
+        },
+    )
+
+
+def ensure_frontend_bucket_cors(s3, bucket: str, allowed_origins: List[str]) -> None:
+    s3.put_bucket_cors(
+        Bucket=bucket,
+        CORSConfiguration={
+            "CORSRules": [
+                {
+                    "AllowedOrigins": allowed_origins,
+                    "AllowedMethods": ["GET", "HEAD"],
+                    "AllowedHeaders": ["*"],
+                    "MaxAgeSeconds": 0,
+                }
+            ]
+        },
+    )
+
+
+def _content_type_for_file(path: str) -> str:
+    # Ensure common types are correct across OSes
+    mimetypes.add_type("application/javascript", ".js")
+    mimetypes.add_type("application/javascript", ".mjs")
+    mimetypes.add_type("text/css", ".css")
+    mimetypes.add_type("text/html", ".html")
+
+    ctype, _ = mimetypes.guess_type(path)
+    return ctype or "application/octet-stream"
+
+
+def upload_frontend_dir(s3, bucket: str, local_dir: str) -> int:
+    if not os.path.isdir(local_dir):
+        raise RuntimeError(f"Frontend dir not found: {local_dir}")
+
+    uploaded = 0
+    for root, _, files in os.walk(local_dir):
+        for f in files:
+            local_path = os.path.join(root, f)
+            rel_path = os.path.relpath(local_path, local_dir)
+            key = rel_path.replace("\\", "/")
+
+            extra = {"ContentType": _content_type_for_file(local_path)}
+            s3.upload_file(local_path, bucket, key, ExtraArgs=extra)
+            uploaded += 1
+    return uploaded
+
+
+def put_frontend_config_js(s3, bucket: str, api_base_url: str, detector_lambda_url: str) -> None:
+    # This file is loaded by HTML pages to set window.API_BASE_URL, etc.
+    body = (
+        "// Auto-generated by lifeshot_bootstrap.py (do not edit manually)\n"
+        f"window.API_BASE_URL = {json.dumps(api_base_url)};\n"
+        f"window.AUTH_BASE_URL = {json.dumps(api_base_url)};\n"
+        f"window.DETECTOR_LAMBDA_URL = {json.dumps(detector_lambda_url)};\n"
+    ).encode("utf-8")
+
+    s3.put_object(
+        Bucket=bucket,
+        Key="config.js",
+        Body=body,
+        ContentType="application/javascript; charset=utf-8",
+        CacheControl="no-cache",
+    )
+
+
+def deploy_frontend_static_website(
+    s3,
+    *,
+    bucket: str,
+    region: str,
+    local_dir: str,
+    cors_allowed_origins: List[str],
+    api_base_url: str,
+    detector_lambda_url: str,
+) -> str:
+    ensure_frontend_bucket_exists(s3, bucket, region)
+    ensure_frontend_public_access(s3, bucket)
+    ensure_frontend_website_hosting(s3, bucket)
+    ensure_frontend_bucket_cors(s3, bucket, cors_allowed_origins)
+
+    # Upload app files
+    uploaded = upload_frontend_dir(s3, bucket, local_dir)
+    log(f"Uploaded frontend files: {uploaded} file(s) from {local_dir}")
+
+    # Upload runtime config (overrides any defaults)
+    put_frontend_config_js(s3, bucket, api_base_url, detector_lambda_url)
+    log("Uploaded frontend config: s3://%s/config.js" % bucket)
+
+    return f"http://{bucket}.s3-website-{region}.amazonaws.com"
 
 
 # -------------------------
@@ -1613,52 +1781,50 @@ def main() -> None:
     )
 
     # ============================================================
-    # ✅ NEW: Publish + Attach Pillow Layer (from deploy/pillow311.zip)
+    # ✅ Publish + Attach Pillow Layer (from deploy/pillow311.zip)
     # ============================================================
     log("Ensuring Pillow (PIL) Layer is published + attached to Detector + Render...")
 
-    pillow_zip_path = os.path.join(here, "deploy", "pillow311.zip")  # <-- משתמש ב-ZIP שלך
+    pillow_zip_path = os.path.join(here, "deploy", "pillow311.zip")
     if not os.path.exists(pillow_zip_path):
         die(f"Missing Pillow layer zip: {pillow_zip_path}")
 
-    # Publish new layer version
     layer_resp = retry_on_conflict(lambda: client_lambda.publish_layer_version(
         LayerName="LifeShot-Pillow",
         Content={"ZipFile": b64_zip_bytes(pillow_zip_path)},
-        CompatibleRuntimes=[DEFAULT_PY_RUNTIME],  # e.g. ["python3.11"]
+        CompatibleRuntimes=[DEFAULT_PY_RUNTIME],
         Description=f"LifeShot Pillow layer ({now_utc_iso()})",
     ))
     pillow_layer_version_arn = layer_resp["LayerVersionArn"]
     log(f"Published Pillow layer version: {pillow_layer_version_arn}")
 
-def _attach_layer(fn_name: str):
-    wait_lambda_active(client_lambda, fn_name)
-    cfg = client_lambda.get_function_configuration(FunctionName=fn_name)
-    existing = cfg.get("Layers", []) or []
+    def _attach_layer(fn_name: str):
+        wait_lambda_active(client_lambda, fn_name)
+        cfg = client_lambda.get_function_configuration(FunctionName=fn_name)
+        existing = cfg.get("Layers", []) or []
 
-    # Keep all existing layers EXCEPT older versions of our LifeShot-Pillow layer
-    kept = []
-    for x in existing:
-        arn = (x.get("Arn") or x.get("LayerVersionArn") or "").strip()
-        # remove older versions of the same layer name
-        if ":layer:LifeShot-Pillow:" in arn:
-            continue
-        if arn:
-            kept.append(arn)
+        kept = []
+        for x in existing:
+            arn = (x.get("Arn") or x.get("LayerVersionArn") or "").strip()
+            # remove older versions of our layer
+            if ":layer:LifeShot-Pillow:" in arn:
+                continue
+            if arn:
+                kept.append(arn)
 
-    # Add our latest version at the end (no duplicates)
-    if pillow_layer_version_arn not in kept:
-        kept.append(pillow_layer_version_arn)
+        if pillow_layer_version_arn not in kept:
+            kept.append(pillow_layer_version_arn)
 
-    retry_on_conflict(lambda: client_lambda.update_function_configuration(
-        FunctionName=fn_name,
-        Layers=kept,
-    ))
-    wait_lambda_active(client_lambda, fn_name)
-    log(f"Attached/Updated Pillow layer on {fn_name}: {pillow_layer_version_arn}")
+        retry_on_conflict(lambda: client_lambda.update_function_configuration(
+            FunctionName=fn_name,
+            Layers=kept,
+        ))
+        wait_lambda_active(client_lambda, fn_name)
+        log(f"Attached/Updated Pillow layer on {fn_name}: {pillow_layer_version_arn}")
 
     _attach_layer(DETECTOR_LAMBDA_NAME)
     _attach_layer(RENDER_LAMBDA_NAME)
+
 
     # -------------------------
     # SNS
@@ -1792,6 +1958,31 @@ def _attach_layer(fn_name: str):
     deploy_api(apigw, api_id)
 
     # -------------------------
+    # ✅ Frontend: S3 Static Website Hosting (no CloudFront)
+    # -------------------------
+    log("Deploying frontend to S3 Static Website Hosting...")
+    frontend_cors_origins = _parse_csv_env(FRONTEND_CORS_ALLOWED_ORIGINS)
+    if not frontend_cors_origins:
+        frontend_cors_origins = ["*"]
+
+    website_url = deploy_frontend_static_website(
+        s3,
+        bucket=FRONTEND_BUCKET_NAME,
+        region=REGION,
+        local_dir=FRONTEND_DIR,
+        cors_allowed_origins=frontend_cors_origins,
+        api_base_url=api_endpoint,
+        detector_lambda_url=detector_url,
+    )
+
+    website_origin = website_url.rstrip("/")
+
+    log(f"Updating Login Lambda ALLOWED_ORIGIN -> {website_origin}")
+    merge_lambda_env_vars(client_lambda, LOGIN_LAMBDA_NAME, {
+        "ALLOWED_ORIGIN": website_origin,
+    })
+
+    # -------------------------
     # Summary
     # -------------------------
     print("\n==============================")
@@ -1814,6 +2005,7 @@ def _attach_layer(fn_name: str):
     print(f"SNS Topic ARN: {sns_topic_arn}")
     print(f"HTTP API:      {API_NAME} (ApiId: {api_id})")
     print(f"API Base URL:  {api_endpoint}\n")
+    print(f"Frontend S3 Website: {website_url}")
     print("==============================\n")
 
 
