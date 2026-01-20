@@ -2,12 +2,15 @@
 // CONFIG
 // ===============================
 const API_BASE_URL =
-  window.API_BASE_URL ||
-  "https://2q66aqqv1c.execute-api.us-east-1.amazonaws.com";
+  window.API_BASE_URL || window.AUTH_BASE_URL || "";
 
 // ✅ Auth routes are on the same HTTP API by default
 // (still allows overriding from HTML if you set window.AUTH_BASE_URL)
 const AUTH_BASE_URL = window.AUTH_BASE_URL || API_BASE_URL;
+
+if (!API_BASE_URL) {
+  console.warn("Missing API base URL. Set window.API_BASE_URL (via config.js).");
+}
 
 // ===============================
 // TOKEN STORAGE (LOCALSTORAGE)
