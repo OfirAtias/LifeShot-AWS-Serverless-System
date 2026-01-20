@@ -9,8 +9,11 @@ dynamodb = boto3.resource("dynamodb")
 s3_client = boto3.client("s3")
 
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
-IMAGES_BUCKET     = os.getenv("IMAGES_BUCKET", "lifeshot-pool-images")
-PRESIGN_EXPIRES   = int(os.getenv("PRESIGN_EXPIRES", "900"))
+
+# ✅ Use the real bucket that changes (same one frames + drowningSet are stored in)
+FRAMES_BUCKET_ENV = os.getenv("FRAMES_BUCKET", os.getenv("IMAGES_BUCKET", "lifeshot-pool-images")).strip()
+
+PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "900"))
 
 
 class DecimalEncoder(json.JSONEncoder):
@@ -30,11 +33,15 @@ def _cors_headers():
 
 
 def _response(code, body_obj):
-    return {"statusCode": code, "headers": _cors_headers(), "body": json.dumps(body_obj, cls=DecimalEncoder)}
+    return {
+        "statusCode": code,
+        "headers": _cors_headers(),
+        "body": json.dumps(body_obj, cls=DecimalEncoder),
+    }
 
 
 def _presign_get(bucket, key):
-    if not key:
+    if not key or not bucket:
         return None
     try:
         return s3_client.generate_presigned_url(
@@ -48,6 +55,19 @@ def _presign_get(bucket, key):
 
 def _iso_utc_now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _resolve_bucket_for_event(item: dict) -> str:
+    """
+    Priority:
+    1) item['bucket'] if present (best)
+    2) FRAMES_BUCKET env (recommended)
+    3) fallback to old IMAGES_BUCKET default name
+    """
+    b = (item.get("bucket") or "").strip()
+    if b:
+        return b
+    return FRAMES_BUCKET_ENV or "lifeshot-pool-images"
 
 
 def lambda_handler(event, context):
@@ -87,7 +107,7 @@ def lambda_handler(event, context):
             try:
                 if created_at:
                     created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                    closed_dt  = datetime.fromisoformat(closed_at.replace("Z", "+00:00"))
+                    closed_dt = datetime.fromisoformat(closed_at.replace("Z", "+00:00"))
                     response_seconds = int((closed_dt - created_dt).total_seconds())
             except Exception:
                 response_seconds = -1
@@ -99,12 +119,15 @@ def lambda_handler(event, context):
                 ExpressionAttributeValues={":s": "CLOSED", ":c": closed_at, ":r": response_seconds},
             )
 
-            return _response(200, {
-                "message": "Closed",
-                "eventId": event_id,
-                "closedAt": closed_at,
-                "responseSeconds": response_seconds
-            })
+            return _response(
+                200,
+                {
+                    "message": "Closed",
+                    "eventId": event_id,
+                    "closedAt": closed_at,
+                    "responseSeconds": response_seconds,
+                },
+            )
 
         except Exception as e:
             return _response(500, {"error": "PATCH failed", "details": str(e)})
@@ -119,10 +142,14 @@ def lambda_handler(event, context):
                 items.extend(resp.get("Items", []))
 
             for it in items:
+                bucket = _resolve_bucket_for_event(it)
+
                 prev_key = it.get("prevImageKey")
                 warn_key = it.get("warningImageKey")
-                it["prevImageUrl"] = _presign_get(IMAGES_BUCKET, prev_key)
-                it["warningImageUrl"] = _presign_get(IMAGES_BUCKET, warn_key)
+
+                it["bucketResolved"] = bucket  # ✅ debug helper (optional)
+                it["prevImageUrl"] = _presign_get(bucket, prev_key)
+                it["warningImageUrl"] = _presign_get(bucket, warn_key)
 
             return _response(200, items)
 
