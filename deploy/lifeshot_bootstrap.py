@@ -1612,6 +1612,54 @@ def main() -> None:
         es_zip_bytes, EVENTS_SNS_TIMEOUT, EVENTS_SNS_MEMORY, env_vars={}
     )
 
+    # ============================================================
+    # ✅ NEW: Publish + Attach Pillow Layer (from deploy/pillow311.zip)
+    # ============================================================
+    log("Ensuring Pillow (PIL) Layer is published + attached to Detector + Render...")
+
+    pillow_zip_path = os.path.join(here, "deploy", "pillow311.zip")  # <-- משתמש ב-ZIP שלך
+    if not os.path.exists(pillow_zip_path):
+        die(f"Missing Pillow layer zip: {pillow_zip_path}")
+
+    # Publish new layer version
+    layer_resp = retry_on_conflict(lambda: client_lambda.publish_layer_version(
+        LayerName="LifeShot-Pillow",
+        Content={"ZipFile": b64_zip_bytes(pillow_zip_path)},
+        CompatibleRuntimes=[DEFAULT_PY_RUNTIME],  # e.g. ["python3.11"]
+        Description=f"LifeShot Pillow layer ({now_utc_iso()})",
+    ))
+    pillow_layer_version_arn = layer_resp["LayerVersionArn"]
+    log(f"Published Pillow layer version: {pillow_layer_version_arn}")
+
+def _attach_layer(fn_name: str):
+    wait_lambda_active(client_lambda, fn_name)
+    cfg = client_lambda.get_function_configuration(FunctionName=fn_name)
+    existing = cfg.get("Layers", []) or []
+
+    # Keep all existing layers EXCEPT older versions of our LifeShot-Pillow layer
+    kept = []
+    for x in existing:
+        arn = (x.get("Arn") or x.get("LayerVersionArn") or "").strip()
+        # remove older versions of the same layer name
+        if ":layer:LifeShot-Pillow:" in arn:
+            continue
+        if arn:
+            kept.append(arn)
+
+    # Add our latest version at the end (no duplicates)
+    if pillow_layer_version_arn not in kept:
+        kept.append(pillow_layer_version_arn)
+
+    retry_on_conflict(lambda: client_lambda.update_function_configuration(
+        FunctionName=fn_name,
+        Layers=kept,
+    ))
+    wait_lambda_active(client_lambda, fn_name)
+    log(f"Attached/Updated Pillow layer on {fn_name}: {pillow_layer_version_arn}")
+
+    _attach_layer(DETECTOR_LAMBDA_NAME)
+    _attach_layer(RENDER_LAMBDA_NAME)
+
     # -------------------------
     # SNS
     # -------------------------
@@ -1766,46 +1814,6 @@ def main() -> None:
     print(f"SNS Topic ARN: {sns_topic_arn}")
     print(f"HTTP API:      {API_NAME} (ApiId: {api_id})")
     print(f"API Base URL:  {api_endpoint}\n")
-    print("Routes:")
-    print(f"  POST  {api_endpoint}/auth/login")
-    print(f"  POST  {api_endpoint}/auth/complete-password")
-    print(f"  GET   {api_endpoint}/auth/me")
-    print(f"  POST  {api_endpoint}/auth/logout")
-    print(f"  GET   {api_endpoint}/events        (JWT Auth -> Events API Lambda: {EVENTS_API_LAMBDA_NAME})")
-    print(f"  PATCH {api_endpoint}/events        (JWT Auth -> Events API Lambda: {EVENTS_API_LAMBDA_NAME})")
-
-    print("\n==============================")
-    print("S3 ✅")
-    print(f"Bucket USED: {FRAMES_BUCKET}")
-    print("Prefixes (best-effort markers):")
-    print("  LifeShot/")
-    print("  LifeShot/DrowningSet/")
-    print("  LifeShot/DrowningSet/Test1/")
-    print("  LifeShot/DrowningSet/Test2/")
-    print(f"Uploaded images: Test1={s3_result.get('uploaded_test1', 0)}  Test2={s3_result.get('uploaded_test2', 0)}")
-    print("Example keys:")
-    print("  LifeShot/DrowningSet/Test1/<filename>")
-    print("  LifeShot/DrowningSet/Test2/<filename>")
-
-    print("\nDynamoDB ✅")
-    print(f"Table: {EVENTS_TABLE_NAME}")
-    print("Partition key: eventId (String)")
-    print("Stored fields: closedAt, created_at, prevImageKey, responseSeconds")
-    print("==============================\n")
-
-    print("IMPORTANT ✅ SNS:")
-    print(f"  1) Check {ADMIN_EMAIL} inbox and click CONFIRM subscription (required)")
-    print(f"  2) Events+SNS Lambda env var set: SNS_TOPIC_ARN={sns_topic_arn}")
-    print("  3) Data env vars set on lambdas:")
-    print(f"       FRAMES_BUCKET={FRAMES_BUCKET}")
-    print(f"       FRAMES_PREFIX={FRAMES_PREFIX}")
-    print(f"       EVENTS_TABLE_NAME={EVENTS_TABLE_NAME}")
-    print("==============================\n")
-
-    print("CLIENT CONFIG (admin.html):")
-    print(f"  window.API_BASE_URL = '{api_endpoint}';")
-    print("  window.AUTH_BASE_URL = window.API_BASE_URL;")
-    print(f"  window.DETECTOR_LAMBDA_URL = '{detector_url}';")
     print("==============================\n")
 
 
