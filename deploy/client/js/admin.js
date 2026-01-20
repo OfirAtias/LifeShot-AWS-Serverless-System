@@ -129,6 +129,144 @@ function animateCounter(element, targetValue, duration = 1500) {
 }
 
 // ===============================
+// ✅ LOADING OVERLAY (Injected UI)
+// ===============================
+function ensureDetectorOverlay() {
+  if (document.getElementById("detector-overlay")) return;
+
+  const style = document.createElement("style");
+  style.id = "detector-overlay-style";
+  style.textContent = `
+    #detector-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      backdrop-filter: blur(6px);
+    }
+    #detector-overlay.active { display: flex; }
+    #detector-overlay .box {
+      min-width: 280px;
+      max-width: 90vw;
+      padding: 18px 18px 16px;
+      border-radius: 16px;
+      background: rgba(20, 30, 45, .72);
+      border: 1px solid rgba(255,255,255,.18);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      color: #fff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      text-align: center;
+    }
+    #detector-overlay .title {
+      font-weight: 700;
+      letter-spacing: .2px;
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+    #detector-overlay .msg {
+      opacity: .9;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    #detector-overlay .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+    }
+    #detector-overlay .spinner {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 2px solid rgba(255,255,255,.28);
+      border-top-color: rgba(255,255,255,.95);
+      animation: detSpin .9s linear infinite;
+    }
+    @keyframes detSpin { to { transform: rotate(360deg); } }
+    #detector-overlay .small {
+      font-size: 12px;
+      opacity: .75;
+      margin-top: 8px;
+    }
+  `;
+  document.head.appendChild(style);
+
+  const overlay = document.createElement("div");
+  overlay.id = "detector-overlay";
+  overlay.innerHTML = `
+    <div class="box">
+      <div class="title" id="detector-overlay-title">Running detector…</div>
+      <div class="msg" id="detector-overlay-msg">Please wait</div>
+      <div class="row">
+        <div class="spinner" id="detector-overlay-spinner"></div>
+        <div id="detector-overlay-status">Working…</div>
+      </div>
+    </div>
+  `;
+  overlay.addEventListener("click", (e) => {
+    // prevent closing on click (keep it modal-like)
+    e.preventDefault();
+  });
+  document.body.appendChild(overlay);
+}
+
+function setDetectorOverlay(active, { title, msg, status, spinning } = {}) {
+  ensureDetectorOverlay();
+  const overlay = document.getElementById("detector-overlay");
+  const t = document.getElementById("detector-overlay-title");
+  const m = document.getElementById("detector-overlay-msg");
+  const s = document.getElementById("detector-overlay-status");
+  const sp = document.getElementById("detector-overlay-spinner");
+
+  if (t && title != null) t.textContent = title;
+  if (m && msg != null) m.textContent = msg;
+  if (s && status != null) s.textContent = status;
+  if (sp && spinning != null) sp.style.display = spinning ? "block" : "none";
+
+  if (!overlay) return;
+  if (active) overlay.classList.add("active");
+  else overlay.classList.remove("active");
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// Optional: try to find the clicked button if you didn't pass `btn`
+function findDetectorButton(testName) {
+  // Prefer: <button data-run-detector="Test1">
+  const byData = document.querySelector(`[data-run-detector="${testName}"]`);
+  if (byData) return byData;
+
+  // Fallback ids (if you want): run-detector-test1 / run-detector-test2
+  const idGuess = `run-detector-${String(testName || "").toLowerCase()}`;
+  const byId = document.getElementById(idGuess);
+  if (byId) return byId;
+
+  return null;
+}
+
+function setButtonLoading(btn, loading, labelIdle = "RUN DETECTOR") {
+  if (!btn) return;
+
+  if (loading) {
+    if (!btn.dataset._origText) btn.dataset._origText = btn.innerText;
+    btn.disabled = true;
+    btn.style.opacity = "0.75";
+    btn.style.cursor = "not-allowed";
+    btn.innerText = "Running…";
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = "";
+    btn.style.cursor = "";
+    btn.innerText = btn.dataset._origText || labelIdle;
+  }
+}
+
+// ===============================
 // AUTH (Lambda Auth)
 // ===============================
 async function authMe() {
@@ -204,20 +342,44 @@ async function logout() {
 // ===============================
 // ✅ RUN DETECTOR (LifeShot-Detector Lambda Function URL)
 // ===============================
-async function runDetectorTest(testName) {
+// ✅ You can call it like:
+//   runDetectorTest('Test1')                (works)
+//   runDetectorTest('Test1', this)          (better - passes the button)
+async function runDetectorTest(testName, btn) {
+  const buttonEl = btn || findDetectorButton(testName);
+
   try {
+    if (!DETECTOR_LAMBDA_URL) {
+      alert("Missing Detector URL. Set LS_DETECTOR_LAMBDA_URL first.");
+      return;
+    }
+
+    // UI: show loading immediately
+    setButtonLoading(buttonEl, true);
+    setDetectorOverlay(true, {
+      title: "Running detector…",
+      msg: `Triggering ${testName} on the Lambda detector`,
+      status: "Working…",
+      spinning: true,
+    });
+
     const payload =
       testName === "Test2"
         ? {
-            prefix: "LifeShot/Test2/",
+            prefix: "LifeShot/DrowningSet/Test2/",
             max_frames: 12,
             single_prefix_only: true,
           }
         : {
-            prefix: "LifeShot/Test1/",
+            prefix: "LifeShot/DrowningSet/Test1/",
             max_frames: 8,
             single_prefix_only: true,
           };
+
+    // Optional: timeout guard (so you don't wait forever)
+    const controller = new AbortController();
+    const timeoutMs = 60_000;
+    const t = setTimeout(() => controller.abort(), timeoutMs);
 
     // ✅ Avoid CORS preflight:
     // - no Authorization header
@@ -228,7 +390,8 @@ async function runDetectorTest(testName) {
         "Content-Type": "text/plain;charset=UTF-8",
       },
       body: JSON.stringify(payload),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(t));
 
     const text = await res.text();
     let data = {};
@@ -240,15 +403,48 @@ async function runDetectorTest(testName) {
 
     if (!res.ok) {
       console.error("Detector failed:", res.status, data);
+
+      setDetectorOverlay(true, {
+        title: "Detector failed ❌",
+        msg: `HTTP ${res.status}`,
+        status: "Check console / CloudWatch logs",
+        spinning: false,
+      });
+      await sleep(1400);
+      setDetectorOverlay(false);
+
       alert(`Detector failed (${res.status}). Check console/logs.`);
       return;
     }
 
     console.log("Detector result:", data);
-    alert(`Detector triggered successfully ✅ (${testName})`);
+
+    // UI: success state
+    setDetectorOverlay(true, {
+      title: "Done ✅",
+      msg: `${testName} triggered successfully`,
+      status: "Completed",
+      spinning: false,
+    });
+    await sleep(900);
+    setDetectorOverlay(false);
+
   } catch (err) {
     console.error("Detector error:", err);
-    alert("Error triggering detector. Check console.");
+
+    const isAbort = String(err?.name || "").toLowerCase() === "aborterror";
+    setDetectorOverlay(true, {
+      title: "Detector failed ❌",
+      msg: isAbort ? "Request timed out" : "Request error",
+      status: isAbort ? "Try again" : "Check console",
+      spinning: false,
+    });
+    await sleep(1400);
+    setDetectorOverlay(false);
+
+    alert(isAbort ? "Detector timed out. Try again." : "Error triggering detector. Check console.");
+  } finally {
+    setButtonLoading(buttonEl, false);
   }
 }
 
@@ -532,6 +728,9 @@ function updateManagerChart(events) {
 // BOOTSTRAP
 // ===============================
 document.addEventListener("DOMContentLoaded", async () => {
+  // inject overlay early
+  ensureDetectorOverlay();
+
   const lb = document.getElementById("image-lightbox");
   const img = document.getElementById("lightbox-image");
   const close = document.getElementById("lightbox-close");
