@@ -127,7 +127,7 @@ EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 # -------------------------
 # Frontend (S3 static website)
 # -------------------------
-FRONTEND_BUCKET_NAME = os.getenv("FRONTEND_BUCKET_NAME", "lifeshotweb")
+FRONTEND_BUCKET_NAME = os.getenv("FRONTEND_BUCKET_NAME",f"lifeshotweb-{uuid.uuid4().hex[:6]}")
 FRONTEND_DIR = os.getenv("FRONTEND_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "client"))
 
 # CORS for the frontend bucket itself (not API Gateway)
@@ -1252,6 +1252,16 @@ def add_user_to_group(cognito, user_pool_id: str, email: str, group_name: str) -
     log(f"Assigned {email} -> {group_name}")
 
 
+def set_user_password_confirmed(cognito, user_pool_id: str, email: str, password: str) -> None:
+    cognito.admin_set_user_password(
+        UserPoolId=user_pool_id,
+        Username=email,
+        Password=password,
+        Permanent=True,
+    )
+    log(f"Set permanent password for: {email}")
+
+
 # -------------------------
 # Lambda
 # -------------------------
@@ -1470,9 +1480,11 @@ def ensure_default_stage(apigw, api_id: str) -> None:
     stages = apigw.get_stages(ApiId=api_id).get("Items", [])
     for s in stages:
         if s.get("StageName") == "$default":
+            apigw.update_stage(ApiId=api_id, StageName="$default", AutoDeploy=True)
             return
-    apigw.create_stage(ApiId=api_id, StageName="$default", AutoDeploy=False)
+    apigw.create_stage(ApiId=api_id, StageName="$default", AutoDeploy=True)
     log("Created $default stage.")
+
 
 
 def ensure_integration(apigw, api_id: str, lambda_arn: str) -> str:
@@ -1720,6 +1732,9 @@ def main() -> None:
     log("Ensuring users exist + group assignments")
     ensure_user(cognito, user_pool_id, ADMIN_EMAIL, TEMP_PASSWORD)
     ensure_user(cognito, user_pool_id, GUARD_EMAIL, TEMP_PASSWORD)
+    set_user_password_confirmed(cognito, user_pool_id, ADMIN_EMAIL, TEMP_PASSWORD)
+    set_user_password_confirmed(cognito, user_pool_id, GUARD_EMAIL, TEMP_PASSWORD)
+
     add_user_to_group(cognito, user_pool_id, ADMIN_EMAIL, GROUP_ADMINS)
     add_user_to_group(cognito, user_pool_id, GUARD_EMAIL, GROUP_LIFEGUARDS)
 
@@ -1785,7 +1800,7 @@ def main() -> None:
     # ============================================================
     log("Ensuring Pillow (PIL) Layer is published + attached to Detector + Render...")
 
-    pillow_zip_path = os.path.join(here, "deploy", "pillow311.zip")
+    pillow_zip_path = os.path.join(here, "pillow311.zip")
     if not os.path.exists(pillow_zip_path):
         die(f"Missing Pillow layer zip: {pillow_zip_path}")
 
@@ -1954,6 +1969,7 @@ def main() -> None:
 
     ensure_route(apigw, api_id, "GET /events", events_integration_id, "JWT", authz_id)
     ensure_route(apigw, api_id, "PATCH /events", events_integration_id, "JWT", authz_id)
+    ensure_route(apigw, api_id, "OPTIONS /{proxy+}", login_integration_id, "NONE", None)
 
     deploy_api(apigw, api_id)
 

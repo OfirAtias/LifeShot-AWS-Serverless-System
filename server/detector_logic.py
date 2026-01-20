@@ -10,7 +10,14 @@ from botocore.exceptions import ClientError
 # =========================
 # ENV CONFIG
 # =========================
-BUCKET = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
+# You can pass one of these:
+# - FRAMES_BUCKET="lifeshot-pool-images-123..."
+# - FRAMES_BUCKET_PREFIX="lifeshot-pool-images-"   (recommended for "bucket changes")
+#
+# If FRAMES_BUCKET_PREFIX is set, the detector will auto-pick the newest bucket
+# that starts with that prefix and contains objects under the requested prefix.
+FRAMES_BUCKET_ENV = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
+FRAMES_BUCKET_PREFIX = os.getenv("FRAMES_BUCKET_PREFIX", "").strip()
 
 FRAMES_PREFIX = os.getenv("FRAMES_PREFIX", "LifeShot/")  # input frames
 DROWNINGSET_PREFIX = os.getenv("DROWNINGSET_PREFIX", "LifeShot/DrowningSet/")
@@ -26,12 +33,10 @@ MATCH_CENTER_MAX = float(os.getenv("MATCH_CENTER_MAX", "0.12"))
 
 PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))
 
-# (optional) used only for prevImageUrl presign
 # Events lambda already has its own EVENTS_TABLE_NAME + SNS_TOPIC_ARN in env vars
-# so detector does NOT need SNS env at all
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
-# ✅ Names of the other two Lambdas (matches your env vars screenshots)
+# ✅ Names of the other two Lambdas
 RENDER_LAMBDA_NAME = os.getenv("RENDER_LAMBDA_NAME", "LifeShot_RenderAndS3")
 EVENTS_LAMBDA_NAME = os.getenv("EVENTS_LAMBDA_NAME", "LifeShot_EventsAndSNS")
 
@@ -107,6 +112,61 @@ def presign_get_url(bucket, key):
         )
     except ClientError:
         return None
+
+
+# ===============================
+# Bucket resolution (Option C)
+# ===============================
+def _bucket_has_prefix(bucket: str, prefix: str) -> bool:
+    try:
+        r = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
+        return bool(r.get("KeyCount", 0) > 0)
+    except Exception:
+        return False
+
+
+def _resolve_bucket(prefix_to_check: str) -> str:
+    """
+    Priority:
+    1) event.bucket (if provided and exists)
+    2) FRAMES_BUCKET_PREFIX -> pick newest bucket that has objects under prefix_to_check
+    3) FRAMES_BUCKET env (as-is)
+    """
+    # default fallback
+    return FRAMES_BUCKET_ENV
+
+
+def _pick_bucket_by_prefix(bucket_prefix: str, data_prefix: str) -> str:
+    """
+    Finds buckets starting with bucket_prefix and picks the newest one
+    (by CreationDate) that actually contains objects under data_prefix.
+    """
+    try:
+        resp = s3.list_buckets()
+        buckets = resp.get("Buckets", [])
+    except Exception:
+        return FRAMES_BUCKET_ENV
+
+    candidates = []
+    for b in buckets:
+        name = b.get("Name", "")
+        if not name.startswith(bucket_prefix):
+            continue
+        created = b.get("CreationDate")
+        candidates.append((created, name))
+
+    # newest -> oldest
+    candidates.sort(key=lambda x: x[0] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+    for _, name in candidates:
+        if _bucket_has_prefix(name, data_prefix):
+            return name
+
+    # if none had the prefix, still return newest matching bucket (if exists)
+    if candidates:
+        return candidates[0][1]
+
+    return FRAMES_BUCKET_ENV
 
 
 # =========================
@@ -300,8 +360,13 @@ def lambda_handler(event, context):
     drowningset_prefix = DROWNINGSET_PREFIX
     max_frames = MAX_FRAMES
 
+    # Scene + overrides
     if isinstance(event, dict):
-        scene = event.get("scene")
+        try:
+            scene = int(event.get("scene", 1))
+        except Exception:
+            scene = 1
+
         if scene == 1:
             prefix = "LifeShot/Test1/"
             drowningset_prefix = "LifeShot/DrowningSet/Test1/"
@@ -310,17 +375,41 @@ def lambda_handler(event, context):
             drowningset_prefix = "LifeShot/DrowningSet/Test2/"
 
         prefix = event.get("prefix", prefix)
+        drowningset_prefix = event.get("drowningset_prefix", drowningset_prefix)
 
-        if "drowningset_prefix" in event:
-            drowningset_prefix = event.get("drowningset_prefix", drowningset_prefix)
-        elif "testingset_prefix" in event:
-            drowningset_prefix = event.get("testingset_prefix", drowningset_prefix)
+        try:
+            max_frames = int(event.get("max_frames", max_frames))
+        except Exception:
+            pass
 
-        max_frames = int(event.get("max_frames", max_frames))
+    # ✅ Bucket resolution (works even if scripts create a new bucket every time)
+    # Priority:
+    # - event.bucket (if sent)
+    # - FRAMES_BUCKET_PREFIX -> newest matching bucket that has objects under prefix
+    # - FRAMES_BUCKET env (fallback)
+    bucket = None
+    if isinstance(event, dict):
+        bucket = (event.get("bucket") or "").strip() or None
+
+    if bucket and _bucket_has_prefix(bucket, prefix):
+        BUCKET = bucket
+    else:
+        if FRAMES_BUCKET_PREFIX:
+            BUCKET = _pick_bucket_by_prefix(FRAMES_BUCKET_PREFIX, prefix)
+        else:
+            BUCKET = FRAMES_BUCKET_ENV
 
     frame_keys = list_frames_numeric(BUCKET, prefix, max_frames)
     if not frame_keys:
-        return _resp(200, {"status": "NO_FRAMES", "bucket": BUCKET, "prefix": prefix})
+        return _resp(
+            200,
+            {
+                "status": "NO_FRAMES",
+                "bucket": BUCKET,
+                "prefix": prefix,
+                "hint": "Check FRAMES_BUCKET/FRAMES_BUCKET_PREFIX or upload images under this prefix.",
+            },
+        )
 
     outputs = []
     alerts = []
@@ -411,7 +500,6 @@ def lambda_handler(event, context):
             )
 
             # ✅ invoke Events lambda (DDB + SNS)
-            # NOTE: sns_topic_arn REMOVED - EventsAndSNS takes it from its own env vars
             events_payload = {
                 "eventId": created_event_id,
                 "created_at": created_at_iso,

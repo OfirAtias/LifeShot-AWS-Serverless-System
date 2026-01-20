@@ -51,9 +51,12 @@ def lambda_handler(event, context):
             "status": status,
             "created_at": created_at,
             "warningImageKey": warn_key,
+            "warningImageUrl": warn_url,
         }
         if prev_key:
             item["prevImageKey"] = prev_key
+        if prev_url:
+         item["prevImageUrl"] = prev_url
 
         table.put_item(Item=item)
         print(f"[DB] Event created: {event_id}")

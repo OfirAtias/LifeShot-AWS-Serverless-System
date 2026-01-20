@@ -1,19 +1,40 @@
 // ===============================
 // CONFIG
 // ===============================
+// 1) Try localStorage first (so bucket/urls won’t “run away”)
 const API_BASE_URL =
-  window.API_BASE_URL || window.AUTH_BASE_URL || "";
+  localStorage.getItem("LS_API_BASE_URL") ||
+  window.API_BASE_URL ||
+  window.AUTH_BASE_URL ||
+  "";
 
 const AUTH_BASE_URL = API_BASE_URL;
 
 const DETECTOR_LAMBDA_URL =
-  window.DETECTOR_LAMBDA_URL || "";
+  localStorage.getItem("LS_DETECTOR_LAMBDA_URL") ||
+  window.DETECTOR_LAMBDA_URL ||
+  "";
+
+// 2) Simple helper to set/update URLs from console once
+window.LS_setEndpoints = function (apiBaseUrl, detectorUrl) {
+  if (apiBaseUrl) localStorage.setItem("LS_API_BASE_URL", apiBaseUrl.trim());
+  if (detectorUrl) localStorage.setItem("LS_DETECTOR_LAMBDA_URL", detectorUrl.trim());
+  console.log("Saved ✅", {
+    LS_API_BASE_URL: localStorage.getItem("LS_API_BASE_URL"),
+    LS_DETECTOR_LAMBDA_URL: localStorage.getItem("LS_DETECTOR_LAMBDA_URL"),
+  });
+  console.log("Reload the page now.");
+};
 
 if (!API_BASE_URL) {
-  console.warn("Missing API base URL. Set window.API_BASE_URL (via config.js).");
+  console.warn(
+    "Missing API base URL. Run in console: LS_setEndpoints('https://xxxx.execute-api.us-east-1.amazonaws.com','https://xxxx.lambda-url.us-east-1.on.aws/')"
+  );
 }
 if (!DETECTOR_LAMBDA_URL) {
-  console.warn("Missing Detector URL. Set window.DETECTOR_LAMBDA_URL (via config.js).");
+  console.warn(
+    "Missing Detector URL. Run in console: LS_setEndpoints('https://xxxx.execute-api.us-east-1.amazonaws.com','https://xxxx.lambda-url.us-east-1.on.aws/')"
+  );
 }
 
 // ===============================
@@ -189,13 +210,11 @@ async function runDetectorTest(testName) {
       testName === "Test2"
         ? {
             prefix: "LifeShot/Test2/",
-            drowningset_prefix: "LifeShot/DrowningSet/",
             max_frames: 12,
             single_prefix_only: true,
           }
         : {
             prefix: "LifeShot/Test1/",
-            drowningset_prefix: "LifeShot/DrowningSet/",
             max_frames: 8,
             single_prefix_only: true,
           };

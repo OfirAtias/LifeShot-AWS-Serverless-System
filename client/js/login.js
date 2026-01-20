@@ -1,11 +1,9 @@
 // ===============================
 // CONFIG
 // ===============================
-const API_BASE_URL =
-  window.API_BASE_URL || window.AUTH_BASE_URL || "";
+const API_BASE_URL = window.API_BASE_URL || window.AUTH_BASE_URL || "";
 
-// ✅ Auth routes are on the same HTTP API by default
-// (still allows overriding from HTML if you set window.AUTH_BASE_URL)
+// Auth routes are on the same HTTP API by default
 const AUTH_BASE_URL = window.AUTH_BASE_URL || API_BASE_URL;
 
 if (!API_BASE_URL) {
@@ -48,11 +46,9 @@ function getIdToken() {
 function isTokenExpired() {
   const exp = Number(localStorage.getItem("ls_expires_at") || "0");
   if (!exp) return false;
-  return Date.now() > exp - 15_000; // 15s safety
+  return Date.now() > exp - 15_000;
 }
 
-// ✅ For API Gateway JWT Authorizer: use Access Token (recommended).
-// Fallback to ID token only if missing (debug)
 function getApiBearerToken() {
   const at = getAccessToken();
   if (at) return at;
@@ -66,7 +62,7 @@ function authHeader() {
 }
 
 // ===============================
-// AUTH (Lambda/Auth routes - returns tokens in JSON)
+// AUTH
 // ===============================
 async function authLogin(username, password) {
   const res = await fetch(`${AUTH_BASE_URL}/auth/login`, {
@@ -77,16 +73,17 @@ async function authLogin(username, password) {
 
   const data = await res.json().catch(() => ({}));
 
-  // ✅ if NEW_PASSWORD_REQUIRED
+  // NEW_PASSWORD_REQUIRED
   if (res.status === 409 && data?.challenge === "NEW_PASSWORD_REQUIRED") {
-    return data; // { challenge, session, username, ... }
+    return data;
   }
 
   if (!res.ok) {
-    throw new Error(data?.message || `Login failed (${res.status})`);
+    const extra = data?.reason ? `: ${data.reason}` : "";
+    throw new Error((data?.message || `Login failed (${res.status})`) + extra);
   }
 
-  return data; // { ok, role, accessToken, idToken, ... }
+  return data;
 }
 
 async function authCompletePassword(username, session, newPassword) {
@@ -98,18 +95,19 @@ async function authCompletePassword(username, session, newPassword) {
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data?.message || `Password change failed (${res.status})`);
+    const extra = data?.reason ? `: ${data.reason}` : "";
+    throw new Error((data?.message || `Password change failed (${res.status})`) + extra);
   }
-  return data; // tokens like login
+  return data;
 }
 
 async function authMe() {
-  const idToken = getIdToken();
-  if (!idToken || isTokenExpired()) return null;
+  const token = getIdToken() || getAccessToken();
+  if (!token || isTokenExpired()) return null;
 
   const res = await fetch(`${AUTH_BASE_URL}/auth/me`, {
     method: "GET",
-    headers: { Authorization: `Bearer ${idToken}` },
+    headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
 
@@ -127,7 +125,7 @@ async function authLogout() {
 }
 
 // ===============================
-// UI HELPERS (very simple)
+// UI HELPERS
 // ===============================
 function showError(msg) {
   const errEl = document.getElementById("auth-error");
@@ -161,7 +159,7 @@ async function handleLogin() {
   try {
     const resp = await authLogin(username, password);
 
-    // ✅ must change password
+    // must change password
     if (resp?.challenge === "NEW_PASSWORD_REQUIRED") {
       const newPassword = prompt(
         "Your account requires a new password. Enter a new password:"
@@ -182,7 +180,7 @@ async function handleLogin() {
       return;
     }
 
-    // ✅ normal
+    // normal
     saveTokensFromLoginResponse(resp);
     routeAfterLogin(resp.role);
   } catch (e) {
@@ -210,5 +208,5 @@ function routeAfterLogin(role) {
 // BOOTSTRAP
 // ===============================
 document.addEventListener("DOMContentLoaded", async () => {
-  // זמנית: לא עושים auto redirect כדי לעצור לופים
+  // no auto redirect
 });
