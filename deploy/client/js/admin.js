@@ -204,10 +204,10 @@ function ensureDetectorOverlay() {
         <div class="spinner" id="detector-overlay-spinner"></div>
         <div id="detector-overlay-status">Working…</div>
       </div>
+      <div class="small" id="detector-overlay-small">This can take 10–15 seconds</div>
     </div>
   `;
   overlay.addEventListener("click", (e) => {
-    // prevent closing on click (keep it modal-like)
     e.preventDefault();
   });
   document.body.appendChild(overlay);
@@ -233,37 +233,6 @@ function setDetectorOverlay(active, { title, msg, status, spinning } = {}) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-// Optional: try to find the clicked button if you didn't pass `btn`
-function findDetectorButton(testName) {
-  // Prefer: <button data-run-detector="Test1">
-  const byData = document.querySelector(`[data-run-detector="${testName}"]`);
-  if (byData) return byData;
-
-  // Fallback ids (if you want): run-detector-test1 / run-detector-test2
-  const idGuess = `run-detector-${String(testName || "").toLowerCase()}`;
-  const byId = document.getElementById(idGuess);
-  if (byId) return byId;
-
-  return null;
-}
-
-function setButtonLoading(btn, loading, labelIdle = "RUN DETECTOR") {
-  if (!btn) return;
-
-  if (loading) {
-    if (!btn.dataset._origText) btn.dataset._origText = btn.innerText;
-    btn.disabled = true;
-    btn.style.opacity = "0.75";
-    btn.style.cursor = "not-allowed";
-    btn.innerText = "Running…";
-  } else {
-    btn.disabled = false;
-    btn.style.opacity = "";
-    btn.style.cursor = "";
-    btn.innerText = btn.dataset._origText || labelIdle;
-  }
 }
 
 // ===============================
@@ -342,27 +311,16 @@ async function logout() {
 // ===============================
 // ✅ RUN DETECTOR (LifeShot-Detector Lambda Function URL)
 // ===============================
-// ✅ You can call it like:
-//   runDetectorTest('Test1')                (works)
-//   runDetectorTest('Test1', this)          (better - passes the button)
-async function runDetectorTest(testName, btn) {
-  const buttonEl = btn || findDetectorButton(testName);
+async function runDetectorTest(testName) {
+  // Start loading UI (ONLY addition)
+  setDetectorOverlay(true, {
+    title: "Running detector…",
+    msg: `Triggering ${testName} (please wait)`,
+    status: "Working…",
+    spinning: true,
+  });
 
   try {
-    if (!DETECTOR_LAMBDA_URL) {
-      alert("Missing Detector URL. Set LS_DETECTOR_LAMBDA_URL first.");
-      return;
-    }
-
-    // UI: show loading immediately
-    setButtonLoading(buttonEl, true);
-    setDetectorOverlay(true, {
-      title: "Running detector…",
-      msg: `Triggering ${testName} on the Lambda detector`,
-      status: "Working…",
-      spinning: true,
-    });
-
     const payload =
       testName === "Test2"
         ? {
@@ -376,22 +334,19 @@ async function runDetectorTest(testName, btn) {
             single_prefix_only: true,
           };
 
-    // Optional: timeout guard (so you don't wait forever)
-    const controller = new AbortController();
-    const timeoutMs = 60_000;
-    const t = setTimeout(() => controller.abort(), timeoutMs);
-
     // ✅ Avoid CORS preflight:
     // - no Authorization header
     // - no application/json content-type
+    console.log("DETECTOR_LAMBDA_URL =", DETECTOR_LAMBDA_URL);
+    console.log("payload =", payload);
+
     const res = await fetch(DETECTOR_LAMBDA_URL, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=UTF-8",
       },
       body: JSON.stringify(payload),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(t));
+    });
 
     const text = await res.text();
     let data = {};
@@ -419,7 +374,7 @@ async function runDetectorTest(testName, btn) {
 
     console.log("Detector result:", data);
 
-    // UI: success state
+    // Success UI
     setDetectorOverlay(true, {
       title: "Done ✅",
       msg: `${testName} triggered successfully`,
@@ -429,22 +384,20 @@ async function runDetectorTest(testName, btn) {
     await sleep(900);
     setDetectorOverlay(false);
 
+    alert(`Detector triggered successfully ✅ (${testName})`);
   } catch (err) {
     console.error("Detector error:", err);
 
-    const isAbort = String(err?.name || "").toLowerCase() === "aborterror";
     setDetectorOverlay(true, {
-      title: "Detector failed ❌",
-      msg: isAbort ? "Request timed out" : "Request error",
-      status: isAbort ? "Try again" : "Check console",
+      title: "Detector error ❌",
+      msg: "Request error",
+      status: "Check console",
       spinning: false,
     });
     await sleep(1400);
     setDetectorOverlay(false);
 
-    alert(isAbort ? "Detector timed out. Try again." : "Error triggering detector. Check console.");
-  } finally {
-    setButtonLoading(buttonEl, false);
+    alert("Error triggering detector. Check console.");
   }
 }
 
@@ -728,7 +681,7 @@ function updateManagerChart(events) {
 // BOOTSTRAP
 // ===============================
 document.addEventListener("DOMContentLoaded", async () => {
-  // inject overlay early
+  // inject overlay early (so first click is instant)
   ensureDetectorOverlay();
 
   const lb = document.getElementById("image-lightbox");
