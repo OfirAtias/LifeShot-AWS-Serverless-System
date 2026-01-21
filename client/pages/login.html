@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
@@ -22,9 +22,6 @@
       <div class="glass-card auth-card-size">
         <h1 class="water-logo">LifeShot</h1>
 
-        <!-- Old username/password inputs are kept (hidden) just to not break your CSS/layout.
-             You no longer log in locally from here. -->
-        <!--  שינוי קטן: מורידים hidden כדי שתוכל לעשות login מהאתר שלך -->
         <div style="text-align: left; width: 100%">
           <label class="label-text">Email</label>
           <input
@@ -46,7 +43,6 @@
           Secure sign-in powered by Amazon Cognito
         </p>
 
-        <!-- שינוי: במקום cognitoLogin() -> handleLogin() -->
         <button type="button" class="btn-water" onclick="handleLogin()">
           Log In
         </button>

@@ -36,7 +36,7 @@ function getIdToken() {
 
 function isTokenExpired() {
   const exp = Number(localStorage.getItem("ls_expires_at") || "0");
-  if (!exp) return false; // אם אין expires, לא חוסמים
+  if (!exp) return false; 
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
@@ -59,7 +59,7 @@ function authHeader() {
 let allEvents = [];
 let currentLightboxImages = [];
 let currentLightboxIndex = 0;
-let myPieChart = null; // משתנה לשמירת הגרף
+let myPieChart = null; 
 
 // ===============================
 // HELPERS

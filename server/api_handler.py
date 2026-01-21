@@ -147,7 +147,7 @@ def lambda_handler(event, context):
                 prev_key = it.get("prevImageKey")
                 warn_key = it.get("warningImageKey")
 
-                it["bucketResolved"] = bucket  # debug helper (optional)
+                it["bucketResolved"] = bucket
                 it["prevImageUrl"] = _presign_get(bucket, prev_key)
                 it["warningImageUrl"] = _presign_get(bucket, warn_key)
 
