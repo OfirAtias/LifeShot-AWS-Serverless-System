@@ -18,7 +18,8 @@ const DETECTOR_LAMBDA_URL =
 // 2) Simple helper to set/update URLs from console once
 window.LS_setEndpoints = function (apiBaseUrl, detectorUrl) {
   if (apiBaseUrl) localStorage.setItem("LS_API_BASE_URL", apiBaseUrl.trim());
-  if (detectorUrl) localStorage.setItem("LS_DETECTOR_LAMBDA_URL", detectorUrl.trim());
+  if (detectorUrl)
+    localStorage.setItem("LS_DETECTOR_LAMBDA_URL", detectorUrl.trim());
   console.log("Saved", {
     LS_API_BASE_URL: localStorage.getItem("LS_API_BASE_URL"),
     LS_DETECTOR_LAMBDA_URL: localStorage.getItem("LS_DETECTOR_LAMBDA_URL"),
@@ -28,12 +29,12 @@ window.LS_setEndpoints = function (apiBaseUrl, detectorUrl) {
 
 if (!API_BASE_URL) {
   console.warn(
-    "Missing API base URL. Run in console: LS_setEndpoints('https://xxxx.execute-api.us-east-1.amazonaws.com','https://xxxx.lambda-url.us-east-1.on.aws/')"
+    "Missing API base URL. Run in console: LS_setEndpoints('https://xxxx.execute-api.us-east-1.amazonaws.com','https://xxxx.lambda-url.us-east-1.on.aws/')",
   );
 }
 if (!DETECTOR_LAMBDA_URL) {
   console.warn(
-    "Missing Detector URL. Run in console: LS_setEndpoints('https://xxxx.execute-api.us-east-1.amazonaws.com','https://xxxx.lambda-url.us-east-1.on.aws/')"
+    "Missing Detector URL. Run in console: LS_setEndpoints('https://xxxx.execute-api.us-east-1.amazonaws.com','https://xxxx.lambda-url.us-east-1.on.aws/')",
   );
 }
 
@@ -278,7 +279,7 @@ async function apiFetch(path, options = {}) {
   if (res.status === 401 || res.status === 403) {
     console.warn(
       "Unauthorized from API (check authorizer token type / issuer / audience)",
-      res.status
+      res.status,
     );
     throw new Error(`Unauthorized (${res.status})`);
   }
@@ -334,7 +335,7 @@ async function runDetectorTest(testName) {
             single_prefix_only: true,
           };
 
-    // ✅ Avoid CORS preflight:
+    // Avoid CORS preflight:
     // - no Authorization header
     // - no application/json content-type
     console.log("DETECTOR_LAMBDA_URL =", DETECTOR_LAMBDA_URL);
@@ -419,7 +420,7 @@ async function fetchEvents() {
     const statOpen = document.getElementById("stat-open");
     if (statOpen) {
       const openCount = dataArr.filter(
-        (e) => normalizeStatus(e.status) === "OPEN"
+        (e) => normalizeStatus(e.status) === "OPEN",
       ).length;
       animateCounter(statOpen, openCount);
     }
@@ -449,7 +450,7 @@ function renderGallery(data) {
   }
 
   const sorted = [...data].sort(
-    (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at)
+    (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at),
   );
 
   sorted.forEach((evt) => {
@@ -493,7 +494,7 @@ function renderGallery(data) {
             ${
               beforeUrl
                 ? `<img src="${getSafeUrl(
-                    beforeUrl
+                    beforeUrl,
                   )}" class="card-img-obj" ${beforeOnClick}>`
                 : `<div class="no-img-box">No Image</div>`
             }
@@ -503,7 +504,7 @@ function renderGallery(data) {
             ${
               afterUrl
                 ? `<img src="${getSafeUrl(
-                    afterUrl
+                    afterUrl,
                   )}" class="card-img-obj" style="border: 2px solid #ff4757;" ${afterOnClick}>`
                 : `<div class="no-img-box">No Image</div>`
             }
