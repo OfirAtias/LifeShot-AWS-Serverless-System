@@ -1,0 +1,209 @@
+openapi: 3.0.3
+info:
+  title: LifeShot API
+  description: |
+    LifeShot API provides authentication, event management,
+    and drowning alert handling for the LifeShot system.
+    This API is consumed by the Lifeguard and Admin dashboards.
+  version: "1.0.0"
+
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com
+    variables:
+      apiId:
+        default: YOUR_API_ID
+      region:
+        default: us-east-1
+
+tags:
+  - name: Authentication
+    description: User login and session management
+  - name: Events
+    description: Drowning events management (JWT protected)
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: lifeguard@example.com
+        password:
+          type: string
+          example: LifeShot!123
+
+    LoginResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          example: true
+        role:
+          type: string
+          example: lifeguard
+        username:
+          type: string
+          example: lifeguard@example.com
+        email:
+          type: string
+          example: lifeguard@example.com
+        groups:
+          type: array
+          items:
+            type: string
+          example: [Lifeguards]
+        accessToken:
+          type: string
+        idToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          example: 3600
+
+    Event:
+      type: object
+      properties:
+        eventId:
+          type: string
+          example: EVT-1700000000-frame123
+        status:
+          type: string
+          example: OPEN
+        created_at:
+          type: string
+          format: date-time
+        closedAt:
+          type: string
+          format: date-time
+        responseSeconds:
+          type: integer
+          example: 42
+        warningImageUrl:
+          type: string
+          example: https://s3.amazonaws.com/...
+        prevImageUrl:
+          type: string
+          example: https://s3.amazonaws.com/...
+
+    CloseEventRequest:
+      type: object
+      required: [eventId]
+      properties:
+        eventId:
+          type: string
+          example: EVT-1700000000-frame123
+
+paths:
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: User login
+      description: Authenticates a user and returns JWT tokens.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+
+  /auth/complete-password:
+    post:
+      tags: [Authentication]
+      summary: Complete password setup
+      description: Completes initial password setup for first-time users.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, newPassword, session]
+              properties:
+                username:
+                  type: string
+                newPassword:
+                  type: string
+                session:
+                  type: string
+      responses:
+        "200":
+          description: Password updated successfully
+        "401":
+          description: Password change failed
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current user info
+      description: Returns information about the currently authenticated user.
+      responses:
+        "200":
+          description: User details returned
+        "401":
+          description: Invalid or missing token
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout user
+      description: Logs out the user (client-side token cleanup).
+      responses:
+        "200":
+          description: Logout successful
+
+  /events:
+    get:
+      tags: [Events]
+      summary: List all events
+      description: Returns all drowning-related events.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+        "401":
+          description: Unauthorized
+
+    patch:
+      tags: [Events]
+      summary: Close an event
+      description: Marks an event as CLOSED and records response time.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseEventRequest"
+      responses:
+        "200":
+          description: Event closed successfully
+        "401":
+          description: Unauthorized
