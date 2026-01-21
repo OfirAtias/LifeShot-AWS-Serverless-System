@@ -36,7 +36,7 @@ PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))
 # Events lambda already has its own EVENTS_TABLE_NAME + SNS_TOPIC_ARN in env vars
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
-# ✅ Names of the other two Lambdas
+# Names of the other two Lambdas
 RENDER_LAMBDA_NAME = os.getenv("RENDER_LAMBDA_NAME", "LifeShot_RenderAndS3")
 EVENTS_LAMBDA_NAME = os.getenv("EVENTS_LAMBDA_NAME", "LifeShot_EventsAndSNS")
 
@@ -382,7 +382,7 @@ def lambda_handler(event, context):
         except Exception:
             pass
 
-    # ✅ Bucket resolution (works even if scripts create a new bucket every time)
+    # Bucket resolution (works even if scripts create a new bucket every time)
     # Priority:
     # - event.bucket (if sent)
     # - FRAMES_BUCKET_PREFIX -> newest matching bucket that has objects under prefix
@@ -475,7 +475,7 @@ def lambda_handler(event, context):
 
         drowningset_key = f"{drowningset_prefix}{_basename(key)}_{status_label}.png"
 
-        # ✅ call Render lambda (draw + S3 + presign)
+        # call Render lambda (draw + S3 + presign)
         render_payload = {
             "bucket": BUCKET,
             "src_key": key,
@@ -499,7 +499,7 @@ def lambda_handler(event, context):
                 presign_get_url(BUCKET, prev_drowningset_key) if prev_drowningset_key else None
             )
 
-            # ✅ invoke Events lambda (DDB + SNS)
+            # invoke Events lambda (DDB + SNS)
             events_payload = {
                 "eventId": created_event_id,
                 "created_at": created_at_iso,

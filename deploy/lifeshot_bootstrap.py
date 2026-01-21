@@ -22,7 +22,7 @@ LifeShot Auth Stack Bootstrap (Boto3)
     - EventsAndSNS env vars: SNS_TOPIC_ARN
     - Detector does NOT store SNS_TOPIC_ARN
 
-NEW IN THIS VERSION ✅
+NEW IN THIS VERSION 
 - S3 bucket AUTO handling:
   - Tries default bucket lifeshot-pool-images (or FRAMES_BUCKET)
   - If bucket exists but is NOT writeable (AccessDenied on PutObject), or doesn't exist:
@@ -495,7 +495,7 @@ def ensure_bucket_writeable(s3, desired_bucket: str, region: str, account_id: st
         s3.head_bucket(Bucket=desired_bucket)
         log(f"S3 bucket exists: {desired_bucket}")
         if _s3_can_write(s3, desired_bucket):
-            log(f"S3 bucket is writeable ✅: {desired_bucket}")
+            log(f"S3 bucket is writeable: {desired_bucket}")
             return desired_bucket
         log(f"S3 bucket exists but NOT writeable. Will try reuse/create another.")
     except ClientError as e:
@@ -512,7 +512,7 @@ def ensure_bucket_writeable(s3, desired_bucket: str, region: str, account_id: st
                     )
                 time.sleep(2)
                 if _s3_can_write(s3, desired_bucket):
-                    log(f"Created and writeable ✅: {desired_bucket}")
+                    log(f"Created and writeable : {desired_bucket}")
                     return desired_bucket
                 log(f"Created {desired_bucket} but still not writeable.")
             except ClientError as e2:
@@ -521,10 +521,10 @@ def ensure_bucket_writeable(s3, desired_bucket: str, region: str, account_id: st
             # AccessDenied/403 etc.
             log(f"head_bucket failed for {desired_bucket} ({code}).")
 
-    # 2) ✅ REUSE: if we already created a bucket in previous runs, reuse it
+    # 2) REUSE: if we already created a bucket in previous runs, reuse it
     existing = find_existing_writeable_bucket(s3, desired_bucket, account_id)
     if existing:
-        log(f"Reusing existing writeable bucket ✅: {existing}")
+        log(f"Reusing existing writeable bucket : {existing}")
         return existing
 
     # 3) create a new unique bucket (ONLY if none exists)
@@ -544,7 +544,7 @@ def ensure_bucket_writeable(s3, desired_bucket: str, region: str, account_id: st
     if not _s3_can_write(s3, new_bucket):
         raise RuntimeError(f"Created bucket but cannot write to it: {new_bucket}")
 
-    log(f"Created new writeable bucket ✅: {new_bucket}")
+    log(f"Created new writeable bucket: {new_bucket}")
     return new_bucket
 
 
@@ -1343,7 +1343,7 @@ def merge_lambda_env_vars(client_lambda, fn_name: str, updates: Dict[str, Option
 def ensure_function_url(client_lambda, fn_name: str, allowed_origin: str) -> str:
     wait_lambda_active(client_lambda, fn_name)
 
-    # ✅ Lambda Function URL CORS does NOT accept "OPTIONS" here
+    #  Lambda Function URL CORS does NOT accept "OPTIONS" here
     cors_cfg = {
         "AllowOrigins": ["*"],
         "AllowMethods": ["POST"],  # <-- remove OPTIONS
@@ -1625,7 +1625,7 @@ def main() -> None:
     s3 = safe_client("s3")
     ddb = safe_client("dynamodb")
 
-    # ✅ credentials sanity
+    # credentials sanity
     try:
         sts.get_caller_identity()
     except ClientError as e:
@@ -1635,7 +1635,7 @@ def main() -> None:
     log(f"Account: {account_id}")
 
     # ------------------------------------------------------------
-    # ✅ IAM / Role selection (robust)
+    #  IAM / Role selection (robust)
     #   - Try to use/create LifeShotLambdaRole if possible
     #   - If CreateRole is blocked (VocLabs), fallback to LabRole
     # ------------------------------------------------------------
@@ -1657,7 +1657,7 @@ def main() -> None:
             code = e.response.get("Error", {}).get("Code", "")
             msg = e.response.get("Error", {}).get("Message", "") or str(e)
 
-            # ✅ fallback instead of failing
+            #  fallback instead of failing
             if code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation") or "CreateRole" in msg:
                 log("IAM CreateRole is blocked in this environment. Falling back to LabRole (academy style).")
                 can_manage_iam = False
@@ -1676,7 +1676,7 @@ def main() -> None:
     here = os.path.dirname(os.path.abspath(__file__))
 
     # -------------------------
-    # ✅ S3 auto bucket + upload
+    #  S3 auto bucket + upload
     # -------------------------
     log("Ensuring S3 bucket + folder structure + uploading images from DEPLOY...")
     s3_result = ensure_s3_structure_and_upload(
@@ -1796,7 +1796,7 @@ def main() -> None:
     )
 
     # ============================================================
-    # ✅ Publish + Attach Pillow Layer (from deploy/pillow311.zip)
+    # Publish + Attach Pillow Layer (from deploy/pillow311.zip)
     # ============================================================
     log("Ensuring Pillow (PIL) Layer is published + attached to Detector + Render...")
 
@@ -1974,7 +1974,7 @@ def main() -> None:
     deploy_api(apigw, api_id)
 
     # -------------------------
-    # ✅ Frontend: S3 Static Website Hosting (no CloudFront)
+    # Frontend: S3 Static Website Hosting
     # -------------------------
     log("Deploying frontend to S3 Static Website Hosting...")
     frontend_cors_origins = _parse_csv_env(FRONTEND_CORS_ALLOWED_ORIGINS)
@@ -2002,7 +2002,7 @@ def main() -> None:
     # Summary
     # -------------------------
     print("\n==============================")
-    print("DONE ✅")
+    print("DONE")
     print(f"Region:        {REGION}")
     print(f"User Pool:     {USER_POOL_NAME} ({user_pool_id})")
     print(f"App Client:    {APP_CLIENT_NAME} (ClientId: {client_id})")

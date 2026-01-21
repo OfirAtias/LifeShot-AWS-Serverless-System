@@ -40,11 +40,11 @@ function isTokenExpired() {
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
-// ✅ API Gateway JWT Authorizer צריך Access Token (לא ID token)
+//  API Gateway JWT Authorizer 
 function getApiBearerToken() {
   const at = getAccessToken();
   if (at) return at;
-  return getIdToken(); // fallback רק אם אין (לבדיקות)
+  return getIdToken(); // fallback 
 }
 
 function authHeader() {
@@ -181,7 +181,7 @@ async function logout() {
 }
 
 // ===============================
-// ✅ RUN DETECTOR (LifeShot-Detector Lambda Function URL)
+//  RUN DETECTOR (LifeShot-Detector Lambda Function URL)
 // ===============================
 async function runDetectorTest(testName) {
   try {
@@ -200,7 +200,7 @@ async function runDetectorTest(testName) {
             single_prefix_only: true,
           };
 
-    // ✅ Avoid CORS preflight:
+    // Avoid CORS preflight:
     // - no Authorization header
     // - no application/json content-type
     const res = await fetch(DETECTOR_LAMBDA_URL, {
@@ -226,7 +226,7 @@ async function runDetectorTest(testName) {
     }
 
     console.log("Detector result:", data);
-    alert(`Detector triggered successfully ✅ (${testName})`);
+    alert(`Detector triggered successfully (${testName})`);
   } catch (err) {
     console.error("Detector error:", err);
     alert("Error triggering detector. Check console.");

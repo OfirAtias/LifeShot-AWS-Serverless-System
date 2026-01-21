@@ -19,7 +19,7 @@ const DETECTOR_LAMBDA_URL =
 window.LS_setEndpoints = function (apiBaseUrl, detectorUrl) {
   if (apiBaseUrl) localStorage.setItem("LS_API_BASE_URL", apiBaseUrl.trim());
   if (detectorUrl) localStorage.setItem("LS_DETECTOR_LAMBDA_URL", detectorUrl.trim());
-  console.log("Saved ✅", {
+  console.log("Saved", {
     LS_API_BASE_URL: localStorage.getItem("LS_API_BASE_URL"),
     LS_DETECTOR_LAMBDA_URL: localStorage.getItem("LS_DETECTOR_LAMBDA_URL"),
   });
@@ -61,11 +61,11 @@ function isTokenExpired() {
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
-// ✅ API Gateway JWT Authorizer צריך Access Token (לא ID token)
+// API Gateway JWT Authorizer
 function getApiBearerToken() {
   const at = getAccessToken();
   if (at) return at;
-  return getIdToken(); // fallback רק אם אין (לבדיקות)
+  return getIdToken(); // fallback
 }
 
 function authHeader() {
@@ -129,7 +129,7 @@ function animateCounter(element, targetValue, duration = 1500) {
 }
 
 // ===============================
-// ✅ LOADING OVERLAY (Injected UI)
+//  LOADING OVERLAY (Injected UI)
 // ===============================
 function ensureDetectorOverlay() {
   if (document.getElementById("detector-overlay")) return;
@@ -309,7 +309,7 @@ async function logout() {
 }
 
 // ===============================
-// ✅ RUN DETECTOR (LifeShot-Detector Lambda Function URL)
+//  RUN DETECTOR (LifeShot-Detector Lambda Function URL)
 // ===============================
 async function runDetectorTest(testName) {
   // Start loading UI (ONLY addition)
@@ -376,7 +376,7 @@ async function runDetectorTest(testName) {
 
     // Success UI
     setDetectorOverlay(true, {
-      title: "Done ✅",
+      title: "Done",
       msg: `${testName} triggered successfully`,
       status: "Completed",
       spinning: false,
@@ -384,7 +384,7 @@ async function runDetectorTest(testName) {
     await sleep(900);
     setDetectorOverlay(false);
 
-    alert(`Detector triggered successfully ✅ (${testName})`);
+    alert(`Detector triggered successfully (${testName})`);
   } catch (err) {
     console.error("Detector error:", err);
 

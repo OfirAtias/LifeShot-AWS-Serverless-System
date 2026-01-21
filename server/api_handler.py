@@ -10,7 +10,7 @@ s3_client = boto3.client("s3")
 
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
-# ✅ Use the real bucket that changes (same one frames + drowningSet are stored in)
+#  Use the real bucket that changes (same one frames + drowningSet are stored in)
 FRAMES_BUCKET_ENV = os.getenv("FRAMES_BUCKET", os.getenv("IMAGES_BUCKET", "lifeshot-pool-images")).strip()
 
 PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "900"))
@@ -147,7 +147,7 @@ def lambda_handler(event, context):
                 prev_key = it.get("prevImageKey")
                 warn_key = it.get("warningImageKey")
 
-                it["bucketResolved"] = bucket  # ✅ debug helper (optional)
+                it["bucketResolved"] = bucket  # debug helper (optional)
                 it["prevImageUrl"] = _presign_get(bucket, prev_key)
                 it["warningImageUrl"] = _presign_get(bucket, warn_key)
 

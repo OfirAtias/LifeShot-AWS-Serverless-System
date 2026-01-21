@@ -1,13 +1,14 @@
 // ===============================
 // CONFIG
 // ===============================
-const API_BASE_URL =
-  window.API_BASE_URL || window.AUTH_BASE_URL || "";
+const API_BASE_URL = window.API_BASE_URL || window.AUTH_BASE_URL || "";
 
 const AUTH_BASE_URL = window.AUTH_BASE_URL || API_BASE_URL;
 
 if (!API_BASE_URL) {
-  console.warn("Missing API base URL. Set window.API_BASE_URL (via config.js).");
+  console.warn(
+    "Missing API base URL. Set window.API_BASE_URL (via config.js).",
+  );
 }
 
 // ===============================
@@ -34,7 +35,7 @@ function isTokenExpired() {
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
-// ✅ IMPORTANT: API Gateway JWT/Cognito authorizer בדרך כלל מצפה ל-ID token
+// API Gateway JWT/Cognito authorizer wait for ID token
 function getApiBearerToken() {
   const idt = getIdToken();
   if (idt) return idt;
@@ -115,11 +116,10 @@ async function apiFetch(path, options = {}) {
     cache: "no-store",
   });
 
-  // ✅ בזמן בדיקה לא עושים logout אוטומטי - כדי שתראה מה חוזר ב-Network
   if (res.status === 401 || res.status === 403) {
     console.warn(
       "Unauthorized from API (check authorizer token type / issuer / audience)",
-      res.status
+      res.status,
     );
     throw new Error(`Unauthorized (${res.status})`);
   }
@@ -152,7 +152,7 @@ async function checkLiveAlerts() {
     activeAlertsList = (Array.isArray(data) ? data : [])
       .filter((e) => normalizeStatus(e.status) === "OPEN" && e.warningImageUrl)
       .sort(
-        (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at)
+        (a, b) => parseDateSafe(b.created_at) - parseDateSafe(a.created_at),
       );
 
     const overlay = document.getElementById("emergency-overlay");
@@ -199,7 +199,7 @@ function renderCurrentAlert() {
   const timeEl = document.getElementById("display-time");
   if (timeEl) {
     timeEl.innerText = `${String(created.getHours()).padStart(2, "0")}:${String(
-      created.getMinutes()
+      created.getMinutes(),
     ).padStart(2, "0")}`;
   }
 
