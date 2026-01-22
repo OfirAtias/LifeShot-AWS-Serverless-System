@@ -28,7 +28,7 @@ function corsHeaders(origin) {
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Vary": "Origin",
+    Vary: "Origin",
   };
 }
 
@@ -70,7 +70,11 @@ function decodeJwtPayload(token) {
 function getRoleFromGroups(groups) {
   const g = (groups || []).map((x) => String(x).toLowerCase());
   if (g.includes("admins") || g.includes("admin")) return "admin";
-  if (g.includes("lifeguards") || g.includes("lifeguard") || g.includes("guard"))
+  if (
+    g.includes("lifeguards") ||
+    g.includes("lifeguard") ||
+    g.includes("guard")
+  )
     return "guard";
   return "unknown";
 }
@@ -110,7 +114,11 @@ async function routeLogin(event, origin) {
     const expiresIn = Number(auth.ExpiresIn || 3600);
 
     if (!accessToken || !idToken) {
-      return json(401, { message: "Login failed (no tokens returned)" }, origin);
+      return json(
+        401,
+        { message: "Login failed (no tokens returned)" },
+        origin,
+      );
     }
 
     const payload = decodeJwtPayload(idToken) || {};
@@ -130,9 +138,9 @@ async function routeLogin(event, origin) {
         expiresIn,
         accessToken,
         idToken,
-        refreshToken, // אופציונלי (אם לא חוזר, יהיה "")
+        refreshToken, // Optional, if no ans it will be = ""
       },
-      origin
+      origin,
     );
   } catch (err) {
     const detail = err?.name || "AuthError";
@@ -141,11 +149,13 @@ async function routeLogin(event, origin) {
 }
 
 async function routeMe(event, origin) {
-  const token = getBearerToken(event); // מצפים ל-idToken או accessToken
-  if (!token) return json(401, { ok: false, message: "Missing Bearer token" }, origin);
+  const token = getBearerToken(event); //  idToken or accessToken
+  if (!token)
+    return json(401, { ok: false, message: "Missing Bearer token" }, origin);
 
   const payload = decodeJwtPayload(token);
-  if (!payload) return json(401, { ok: false, message: "Invalid token" }, origin);
+  if (!payload)
+    return json(401, { ok: false, message: "Invalid token" }, origin);
 
   const groups = Array.isArray(payload["cognito:groups"])
     ? payload["cognito:groups"]
@@ -161,12 +171,11 @@ async function routeMe(event, origin) {
       email: payload["email"] || "",
       groups,
     },
-    origin
+    origin,
   );
 }
 
 async function routeLogout(event, origin) {
-  // אין cookies לנקות. הלקוח מנקה localStorage.
   return json(200, { ok: true }, origin);
 }
 

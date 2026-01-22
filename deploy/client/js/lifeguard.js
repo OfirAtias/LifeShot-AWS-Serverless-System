@@ -34,7 +34,7 @@ function isTokenExpired() {
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
-// ✅ IMPORTANT: API Gateway JWT/Cognito authorizer בדרך כלל מצפה ל-ID token
+
 function getApiBearerToken() {
   const idt = getIdToken();
   if (idt) return idt;
@@ -115,7 +115,6 @@ async function apiFetch(path, options = {}) {
     cache: "no-store",
   });
 
-  // ✅ בזמן בדיקה לא עושים logout אוטומטי - כדי שתראה מה חוזר ב-Network
   if (res.status === 401 || res.status === 403) {
     console.warn(
       "Unauthorized from API (check authorizer token type / issuer / audience)",
