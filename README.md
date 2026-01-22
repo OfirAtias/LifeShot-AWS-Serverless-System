@@ -105,6 +105,7 @@ You will be prompted to enter:
 
 - AWS Access Key ID
 - AWS Secret Access Key
+- AWS Session Token
 - Default region (recommended: `us-east-1`)
 - Output format (recommended: `json`)
 
