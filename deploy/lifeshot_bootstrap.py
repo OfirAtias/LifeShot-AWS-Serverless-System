@@ -128,7 +128,11 @@ EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 # Frontend (S3 static website)
 # -------------------------
 FRONTEND_BUCKET_NAME = os.getenv("FRONTEND_BUCKET_NAME",f"lifeshotweb-{uuid.uuid4().hex[:6]}")
-FRONTEND_DIR = os.getenv("FRONTEND_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "client"))
+FRONTEND_DIR = os.getenv(
+  "FRONTEND_DIR",
+  os.path.join(os.path.dirname(os.path.abspath(__file__)), "client")
+)
+
 
 # CORS for the frontend bucket itself (not API Gateway)
 FRONTEND_CORS_ALLOWED_ORIGINS = os.getenv("FRONTEND_CORS_ALLOWED_ORIGINS", "*")

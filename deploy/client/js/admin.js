@@ -614,47 +614,65 @@ function prevLightboxImage() {
 }
 
 // ===============================
-// CHART LOGIC (MANAGER)
+// MANGER DASHBOARD CHART
 // ===============================
 function updateManagerChart(events) {
-  const ctx = document.getElementById("eventsPieChart");
-  if (!ctx) return;
+  const canvas = document.getElementById("eventsPieChart");
+  if (!canvas) return;
 
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
+  const now = Date.now();
+  const MS_24H = 24 * 60 * 60 * 1000;
 
-  const isSameDate = (d1, d2) =>
-    d1.getFullYear() === d2.getFullYear() &&
-    d1.getMonth() === d2.getMonth() &&
-    d1.getDate() === d2.getDate();
+  let countLast24h = 0;
+  let countPrev24h = 0;
 
-  let countToday = 0;
-  let countYesterday = 0;
+  let latestDate = null;
 
-  events.forEach((e) => {
+  (events || []).forEach((e) => {
     const d = parseDateSafe(e.created_at);
-    if (isSameDate(d, today)) countToday++;
-    if (isSameDate(d, yesterday)) countYesterday++;
+    if (!(d instanceof Date) || isNaN(d.getTime())) return;
+
+    if (!latestDate || d.getTime() > latestDate.getTime()) latestDate = d;
+
+    const diff = now - d.getTime();
+    if (diff >= 0 && diff < MS_24H) countLast24h++;
+    else if (diff >= MS_24H && diff < 2 * MS_24H) countPrev24h++;
   });
 
-  if (countToday === 0 && countYesterday === 0) {
-    countToday = 5;
-    countYesterday = 3;
-  }
+  if (window.myPieChart instanceof Chart) window.myPieChart.destroy();
 
-  if (window.myPieChart instanceof Chart) {
-    window.myPieChart.destroy();
-  }
+  const noRecent = countLast24h === 0 && countPrev24h === 0;
 
-  window.myPieChart = new Chart(ctx, {
+  const formatDate = (d) => {
+    try {
+      return new Intl.DateTimeFormat("he-IL", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(d);
+    } catch {
+      return d.toISOString().replace("T", " ").substring(0, 16);
+    }
+  };
+
+  const lastEventLabel = latestDate ? formatDate(latestDate) : "No events yet";
+
+  const labels = noRecent ? ["Last event"] : ["Last 24h", "24–48h"];
+  const data = noRecent ? [1] : [countLast24h, countPrev24h];
+  const bg = noRecent
+    ? ["rgba(255,255,255,0.12)"]
+    : ["#274272", "rgba(255, 255, 255, 0.3)"];
+
+  window.myPieChart = new Chart(canvas, {
     type: "doughnut",
     data: {
-      labels: ["Today", "Yesterday"],
+      labels,
       datasets: [
         {
-          data: [countToday, countYesterday],
-          backgroundColor: ["#274272", "rgba(255, 255, 255, 0.3)"],
+          data,
+          backgroundColor: bg,
           borderColor: "transparent",
           borderWidth: 0,
           hoverOffset: 4,
@@ -671,12 +689,32 @@ function updateManagerChart(events) {
             color: "white",
             font: { size: 14, family: "'Segoe UI', sans-serif" },
             padding: 20,
+            generateLabels(chart) {
+              const original =
+                Chart.defaults.plugins.legend.labels.generateLabels(chart);
+
+              if (!noRecent) return original;
+
+              return original.map((it) => ({
+                ...it,
+                text: `Last event: ${lastEventLabel}`,
+              }));
+            },
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              if (noRecent) return `Last event: ${lastEventLabel}`;
+              return `${ctx.label}: ${ctx.parsed}`;
+            },
           },
         },
       },
     },
   });
 }
+
 
 // ===============================
 // BOOTSTRAP
