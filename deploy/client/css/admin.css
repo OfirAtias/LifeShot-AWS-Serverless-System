@@ -438,6 +438,12 @@ body::before {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
+.noEventsMessage {
+  display: none;
+  text-align: center;
+  margin-top: 20px;
+}
+
 /* ================= LIGHTBOX ================= */
 #image-lightbox {
   display: none;

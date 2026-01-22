@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
@@ -72,11 +72,18 @@
             </div>
 
             <div class="glass-panel chart-card">
-              <div class="metric-header" style="margin-bottom: 15px">
+              <div
+                id="chartTitle"
+                class="metric-header"
+                style="margin-bottom: 15px"
+              >
                 Activity: Today vs Yesterday
               </div>
-              <div class="chart-wrapper">
+
+              <div class="chart-wrapper" style="position: relative">
                 <canvas id="eventsPieChart"></canvas>
+
+                <div id="noEventsMessage">NO EVENTS</div>
               </div>
             </div>
           </div>

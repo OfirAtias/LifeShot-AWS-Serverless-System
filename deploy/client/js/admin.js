@@ -618,30 +618,28 @@ function prevLightboxImage() {
 // ===============================
 function updateManagerChart(events) {
   const canvas = document.getElementById("eventsPieChart");
+  const titleElement = document.getElementById("chartTitle");
+  const noEventsMsg = document.getElementById("noEventsMessage");
   if (!canvas) return;
+
+  if (!events || events.length === 0) {
+    if (window.myPieChart instanceof Chart) window.myPieChart.destroy();
+
+    canvas.style.display = "none";
+    if (noEventsMsg) noEventsMsg.style.display = "block";
+    if (titleElement) titleElement.innerText = "NO DATA";
+    return;
+  }
+
+  canvas.style.display = "block";
+  if (noEventsMsg) noEventsMsg.style.display = "none";
 
   const now = Date.now();
   const MS_24H = 24 * 60 * 60 * 1000;
 
   let countLast24h = 0;
   let countPrev24h = 0;
-
   let latestDate = null;
-
-  (events || []).forEach((e) => {
-    const d = parseDateSafe(e.created_at);
-    if (!(d instanceof Date) || isNaN(d.getTime())) return;
-
-    if (!latestDate || d.getTime() > latestDate.getTime()) latestDate = d;
-
-    const diff = now - d.getTime();
-    if (diff >= 0 && diff < MS_24H) countLast24h++;
-    else if (diff >= MS_24H && diff < 2 * MS_24H) countPrev24h++;
-  });
-
-  if (window.myPieChart instanceof Chart) window.myPieChart.destroy();
-
-  const noRecent = countLast24h === 0 && countPrev24h === 0;
 
   const formatDate = (d) => {
     try {
@@ -657,7 +655,29 @@ function updateManagerChart(events) {
     }
   };
 
-  const lastEventLabel = latestDate ? formatDate(latestDate) : "No events yet";
+  events.forEach((e) => {
+    const d = parseDateSafe(e.created_at);
+    if (!(d instanceof Date) || isNaN(d.getTime())) return;
+
+    if (!latestDate || d.getTime() > latestDate.getTime()) latestDate = d;
+
+    const diff = now - d.getTime();
+    if (diff >= 0 && diff < MS_24H) countLast24h++;
+    else if (diff >= MS_24H && diff < 2 * MS_24H) countPrev24h++;
+  });
+
+  if (window.myPieChart instanceof Chart) window.myPieChart.destroy();
+
+  const noRecent = countLast24h === 0 && countPrev24h === 0;
+  const lastEventString = latestDate ? formatDate(latestDate) : "N/A";
+
+  if (titleElement) {
+    if (noRecent) {
+      titleElement.innerText = `LAST EVENT: ${lastEventString}`;
+    } else {
+      titleElement.innerText = "ACTIVITY TODAY VS YESTERDAY";
+    }
+  }
 
   const labels = noRecent ? ["Last event"] : ["Last 24h", "24–48h"];
   const data = noRecent ? [1] : [countLast24h, countPrev24h];
@@ -692,29 +712,21 @@ function updateManagerChart(events) {
             generateLabels(chart) {
               const original =
                 Chart.defaults.plugins.legend.labels.generateLabels(chart);
-
               if (!noRecent) return original;
-
               return original.map((it) => ({
                 ...it,
-                text: `Last event: ${lastEventLabel}`,
+                text: `${lastEventString}`,
               }));
             },
           },
         },
         tooltip: {
-          callbacks: {
-            label: (ctx) => {
-              if (noRecent) return `Last event: ${lastEventLabel}`;
-              return `${ctx.label}: ${ctx.parsed}`;
-            },
-          },
+          enabled: !noRecent,
         },
       },
     },
   });
 }
-
 
 // ===============================
 // BOOTSTRAP
