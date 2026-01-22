@@ -1,4 +1,4 @@
-# LifeShot — Installation Guide (Clean AWS Account)
+# LifeShot — Installation Guide
 
 This document provides clear and detailed instructions for installing the **LifeShot** system from source files on a clean AWS account.
 It is intended for technical reviewers, evaluators, or potential clients who need to deploy and verify the system independently.
