@@ -313,7 +313,6 @@ async function logout() {
 //  RUN DETECTOR (LifeShot-Detector Lambda Function URL)
 // ===============================
 async function runDetectorTest(testName) {
-  // Start loading UI (ONLY addition)
   setDetectorOverlay(true, {
     title: "Running detector…",
     msg: `Triggering ${testName} (please wait)`,
@@ -322,60 +321,29 @@ async function runDetectorTest(testName) {
   });
 
   try {
-    const payload =
-      testName === "Test2"
-        ? {
-            prefix: "LifeShot/DrowningSet/Test2/",
-            max_frames: 12,
-            single_prefix_only: true,
-          }
-        : {
-            prefix: "LifeShot/DrowningSet/Test1/",
-            max_frames: 8,
-            single_prefix_only: true,
-          };
+    const isTest2 = testName === "Test2";
 
-    // Avoid CORS preflight:
-    // - no Authorization header
-    // - no application/json content-type
-    console.log("DETECTOR_LAMBDA_URL =", DETECTOR_LAMBDA_URL);
-    console.log("payload =", payload);
+    const payload = {
+      scene: isTest2 ? 2 : 1,           
+      prefix: isTest2 ? "LifeShot/Test2/" : "LifeShot/Test1/", 
+      drowningset_prefix: isTest2
+        ? "LifeShot/DrowningSet/Test2/"
+        : "LifeShot/DrowningSet/Test1/",    
+      max_frames: isTest2 ? 12 : 8,
+    };
 
     const res = await fetch(DETECTOR_LAMBDA_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=UTF-8",
-      },
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
       body: JSON.stringify(payload),
     });
 
     const text = await res.text();
     let data = {};
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw: text };
-    }
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
-    if (!res.ok) {
-      console.error("Detector failed:", res.status, data);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      setDetectorOverlay(true, {
-        title: "Detector failed ❌",
-        msg: `HTTP ${res.status}`,
-        status: "Check console / CloudWatch logs",
-        spinning: false,
-      });
-      await sleep(1400);
-      setDetectorOverlay(false);
-
-      alert(`Detector failed (${res.status}). Check console/logs.`);
-      return;
-    }
-
-    console.log("Detector result:", data);
-
-    // Success UI
     setDetectorOverlay(true, {
       title: "Done",
       msg: `${testName} triggered successfully`,
@@ -387,8 +355,7 @@ async function runDetectorTest(testName) {
 
     alert(`Detector triggered successfully (${testName})`);
   } catch (err) {
-    console.error("Detector error:", err);
-
+    console.error(err);
     setDetectorOverlay(true, {
       title: "Detector error ❌",
       msg: "Request error",
@@ -397,10 +364,10 @@ async function runDetectorTest(testName) {
     });
     await sleep(1400);
     setDetectorOverlay(false);
-
     alert("Error triggering detector. Check console.");
   }
 }
+
 
 // ===============================
 // MANAGER LOGIC
