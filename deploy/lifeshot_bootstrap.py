@@ -48,6 +48,7 @@ import tempfile
 import time
 import zipfile
 import uuid
+import re
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple, Any, List
 
@@ -455,14 +456,44 @@ def s3_prefix_has_files(s3, bucket: str, prefix: str) -> bool:
             return True
     return False
 
+def _numeric_sort_key(path: str):
+    """
+    Extract first number from filename for proper ordering:
+    1.png, 2.png, 10.png  -> 1,2,10
+    Test2_1.png, Test2_12.png -> 1,12
+    """
+    name = os.path.basename(path)
+    m = re.search(r"(\d+)", name)
+    return int(m.group(1)) if m else 0
 
-def upload_images_to_prefix_if_needed(s3, bucket: str, local_dir: str, prefix: str) -> int:
-    """Upload only if prefix is empty; otherwise skip."""
-    if s3_prefix_has_files(s3, bucket, prefix):
-        log(f"Skip upload (already has files): s3://{bucket}/{prefix}")
-        return 0
-    return upload_images_to_prefix(s3, bucket, local_dir, prefix)
 
+def upload_images_to_prefix(s3, bucket: str, local_dir: str, prefix: str) -> int:
+    files = list_image_files(local_dir)
+    files.sort(key=_numeric_sort_key)
+
+    if not prefix.endswith("/"):
+        prefix = prefix + "/"
+
+    uploaded = 0
+    for idx, fp in enumerate(files, start=1):
+        key = f"{prefix}{idx:05d}_{os.path.basename(fp)}"
+
+        s3.upload_file(
+            fp,
+            bucket,
+            key,
+            ExtraArgs={
+                # bonus: keep explicit ordering metadata (optional)
+                "Metadata": {
+                    "frame_index": str(idx)
+                }
+            }
+        )
+
+        uploaded += 1
+
+    log(f"Uploaded {uploaded} images to s3://{bucket}/{prefix} in numeric order")
+    return uploaded
 
 def find_existing_writeable_bucket(s3, base_name: str, account_id: str) -> Optional[str]:
     """
@@ -663,6 +694,38 @@ def ensure_s3_structure_and_upload(s3, desired_bucket: str, base_prefix: str, he
         "s3_prefix_test2": "LifeShot/DrowningSet/Test2/",
     }
 
+
+def upload_images_to_prefix_if_needed(s3, bucket: str, local_dir: str, prefix: str) -> int:
+    # אם כבר יש קבצים ב־prefix הזה — לא מעלה שוב (כדי לא לשכפל כל ריצה)
+    if s3_prefix_has_files(s3, bucket, prefix):
+        log(f"Prefix already has files, skipping upload: s3://{bucket}/{prefix}")
+        return 0
+    return upload_images_to_prefix_ordered(s3, bucket, local_dir, prefix)
+
+
+def upload_images_to_prefix_ordered(s3, bucket: str, local_dir: str, prefix: str) -> int:
+    files = list_image_files(local_dir)
+    if not files:
+        log(f"No image files found in: {local_dir}")
+        return 0
+
+    # ממיין לפי המספר בשם הקובץ (1.jpg, 2.jpg, 10.jpg וכו’)
+    files.sort(key=_numeric_sort_key)
+
+    if not prefix.endswith("/"):
+        prefix += "/"
+
+    uploaded = 0
+    for idx, fp in enumerate(files, start=1):
+        ext = os.path.splitext(fp)[1].lower() or ".jpg"
+        # KEY מסודר תמיד: 00001.jpg, 00002.jpg ...
+        key = f"{prefix}{idx:05d}{ext}"
+
+        s3.upload_file(fp, bucket, key)
+        uploaded += 1
+
+    log(f"Uploaded {uploaded} images to s3://{bucket}/{prefix} (ordered, zero-padded)")
+    return uploaded
 
 # -------------------------
 # DynamoDB helpers
