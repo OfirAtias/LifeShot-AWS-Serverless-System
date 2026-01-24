@@ -45,7 +45,7 @@ function getIdToken() {
 // Determine whether the saved token expiry has passed.
 function isTokenExpired() {
   const exp = Number(localStorage.getItem("ls_expires_at") || "0");
-  if (!exp) return false; // אם אין expires, לא חוסמים
+  if (!exp) return false;
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
@@ -381,20 +381,30 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Role gate
   try {
-    const me = await authMe();
-    const r = String(me?.role || "").toLowerCase();
+  const me = await authMe();
+  const r = String(me?.role || "").toLowerCase();
+  currentUserRole = r;
 
-    if (!(me?.ok && (r === "guard" || r === "lifeguard"))) {
-      window.location.href = "../pages/login.html";
-      return;
-    }
-
-    const dashboard = document.getElementById("lifeguard-dashboard");
-    if (dashboard) dashboard.classList.remove("hidden");
-
-    checkLiveAlerts();
-    alertPollTimer = setInterval(checkLiveAlerts, 3000);
-  } catch {
+  // Allow Lifeguard/Guard AND Admin
+  if (!(me?.ok && (r === "guard" || r === "lifeguard" || r === "admin"))) {
     window.location.href = "../pages/login.html";
+    return;
   }
+
+  const dashboard = document.getElementById("lifeguard-dashboard");
+  if (dashboard) dashboard.classList.remove("hidden");
+
+  // ✅ show "Back to Admin" only if admin came here
+  const backBtn = document.getElementById("btn-back-admin");
+  if (backBtn && r === "admin") {
+    backBtn.style.display = "inline-flex";
+  }
+
+  checkLiveAlerts();
+  alertPollTimer = setInterval(checkLiveAlerts, 3000);
+} catch {
+  window.location.href = "../pages/login.html";
+}
+
+
 });

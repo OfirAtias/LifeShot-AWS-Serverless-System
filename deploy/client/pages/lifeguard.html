@@ -24,9 +24,18 @@
           <div class="header-center">
             <h1 class="dashboard-title">LIFEGUARD DASHBOARD</h1>
           </div>
-          <div class="header-right">
-            <button class="btn-glass-small" onclick="logout()">Sign Out</button>
-          </div>
+          <div class="header-right" style="gap: 12px; display: flex; align-items: center">
+          <button
+            id="btn-back-admin"
+            class="btn-glass-small"
+            style="display:none"
+            onclick="window.location.href='admin.html'"
+          >
+            Back to Admin
+          </button>
+          <button class="btn-glass-small" onclick="logout()">Sign Out</button>
+        </div>
+
         </header>
 
         <div class="main-monitor-area">
