@@ -257,7 +257,6 @@ function ensureDetectorOverlay() {
         <div class="spinner" id="detector-overlay-spinner"></div>
         <div id="detector-overlay-status">Working…</div>
       </div>
-      <div class="small" id="detector-overlay-small">This can take 10–15 seconds</div>
     </div>
   `;
   overlay.addEventListener("click", (e) => {
@@ -910,7 +909,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     showScreen("manager-dashboard");
-    startEventsPolling(5000);
+    startEventsPolling(20000);
   } catch {
     window.location.href = "../pages/login.html";
   }

@@ -17,12 +17,6 @@ from botocore.exceptions import ClientError
 # =============================================================================
 # Environment configuration
 # =============================================================================
-# You can pass one of these:
-# - FRAMES_BUCKET="lifeshot-pool-images-123..."
-# - FRAMES_BUCKET_PREFIX="lifeshot-pool-images-"   (recommended for "bucket changes")
-#
-# If FRAMES_BUCKET_PREFIX is set, the detector will auto-pick the newest bucket
-# that starts with that prefix and contains objects under the requested prefix.
 FRAMES_BUCKET_ENV = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
 FRAMES_BUCKET_PREFIX = os.getenv("FRAMES_BUCKET_PREFIX", "").strip()
 

@@ -401,7 +401,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   checkLiveAlerts();
-  alertPollTimer = setInterval(checkLiveAlerts, 3000);
+  alertPollTimer = setInterval(checkLiveAlerts, 5000);
 } catch {
   window.location.href = "../pages/login.html";
 }
