@@ -609,7 +609,6 @@ function renderGallery(data) {
       afterOnClick = `onclick="openLightboxByIndex(${idx})"`;
     }
 
-    // ✅ NEW: show responseSeconds only for CLOSED events
     const responseLine =
       status === "CLOSED"
         ? `<div class="card-response-text">Response Time: <b>${formatResponseSeconds(
