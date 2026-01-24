@@ -15,7 +15,7 @@ STACK_PREFIX = os.getenv("STACK_PREFIX", "LifeShot")  # for Lambda/API/Cognito/D
 S3_BUCKET_PREFIXES = [p.strip() for p in os.getenv("S3_BUCKET_PREFIXES", "lifeshot,lifeshotweb").split(",") if p.strip()]
 
 # Safety switch: start in dry-run mode
-DRY_RUN = os.getenv("DRY_RUN", "true").lower() in ("1", "true", "yes", "y")
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("1", "true", "yes", "y")
 
 # IAM cleanup (do NOT touch LabRole)
 IAM_ROLE_TO_DELETE = os.getenv("IAM_ROLE_TO_DELETE", "LifeShotLambdaRole")
