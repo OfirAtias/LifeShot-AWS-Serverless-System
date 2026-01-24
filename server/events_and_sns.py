@@ -1,11 +1,28 @@
+"""Events + SNS Lambda.
+
+Cosmetic refactor only:
+- Improves readability via spacing, section headers, and comments.
+- Does not change functionality or behavior.
+"""
+
 import boto3
 import json
 import os
 
+
+# =============================================================================
+# AWS clients
+# =============================================================================
 dynamodb = boto3.resource("dynamodb")
 sns = boto3.client("sns")
 
 
+# =============================================================================
+# SNS helpers
+# =============================================================================
+
+
+# Publish a message to an SNS topic (no-op if topic ARN is empty).
 def publish_sns(topic_arn, subject, message):
     if not topic_arn:
         print("[SNS] sns_topic_arn empty -> skip")
@@ -13,6 +30,12 @@ def publish_sns(topic_arn, subject, message):
     sns.publish(TopicArn=topic_arn, Subject=subject, Message=message)
 
 
+# =============================================================================
+# Lambda handler
+# =============================================================================
+
+
+# Persist an event record to DynamoDB and publish an alert via SNS.
 def lambda_handler(event, context):
     # expected payload:
     # {
@@ -33,7 +56,9 @@ def lambda_handler(event, context):
         created_at = event.get("created_at")
         status = event.get("status", "OPEN")
 
-        table_name = event.get("events_table") or os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
+        table_name = event.get("events_table") or os.getenv(
+            "EVENTS_TABLE_NAME", "LifeShot_Events"
+        )
         topic_arn = event.get("sns_topic_arn") or os.getenv("SNS_TOPIC_ARN", "")
 
         prev_key = event.get("prevImageKey")
@@ -56,7 +81,7 @@ def lambda_handler(event, context):
         if prev_key:
             item["prevImageKey"] = prev_key
         if prev_url:
-         item["prevImageUrl"] = prev_url
+            item["prevImageUrl"] = prev_url
 
         table.put_item(Item=item)
         print(f"[DB] Event created: {event_id}")

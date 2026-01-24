@@ -1,6 +1,12 @@
-// ===============================
-// CONFIG
-// ===============================
+// LifeShot Lifeguard Dashboard (browser-side logic).
+//
+// Cosmetic refactor only:
+// - Improves readability via spacing, section headers, and comments.
+// - Does not change functionality or behavior.
+
+// =============================================================================
+// Config
+// =============================================================================
 const API_BASE_URL =
   window.API_BASE_URL || window.AUTH_BASE_URL || "";
 
@@ -10,9 +16,12 @@ if (!API_BASE_URL) {
   console.warn("Missing API base URL. Set window.API_BASE_URL (via config.js).");
 }
 
-// ===============================
-// TOKEN STORAGE (LOCALSTORAGE)
-// ===============================
+// =============================================================================
+// Token storage (localStorage)
+// =============================================================================
+
+
+// Clear all stored tokens and expiry metadata.
 function clearTokens() {
   localStorage.removeItem("ls_access_token");
   localStorage.removeItem("ls_id_token");
@@ -20,63 +29,81 @@ function clearTokens() {
   localStorage.removeItem("ls_expires_at");
 }
 
+
+// Read the stored access token.
 function getAccessToken() {
   return localStorage.getItem("ls_access_token") || "";
 }
 
+
+// Read the stored ID token.
 function getIdToken() {
   return localStorage.getItem("ls_id_token") || "";
 }
 
+
+// Determine whether the saved token expiry has passed.
 function isTokenExpired() {
   const exp = Number(localStorage.getItem("ls_expires_at") || "0");
   if (!exp) return false; // אם אין expires, לא חוסמים
   return Date.now() > exp - 15_000; // 15s safety window
 }
 
-
+// Choose the token that will be sent to API Gateway.
 function getApiBearerToken() {
   const idt = getIdToken();
   if (idt) return idt;
   return getAccessToken();
 }
 
+
+// Build an Authorization header if token exists and is not expired.
 function authHeader() {
   const token = getApiBearerToken();
   if (!token || isTokenExpired()) return {};
   return { Authorization: `Bearer ${token}` };
 }
 
-// ===============================
-// STATE
-// ===============================
+// =============================================================================
+// State
+// =============================================================================
 let activeAlertsList = [];
 let currentAlertIndex = 0;
 let alertPollTimer = null;
 let currentLightboxImages = [];
 let currentLightboxIndex = 0;
 
-// ===============================
-// HELPERS
-// ===============================
+// =============================================================================
+// Helpers
+// =============================================================================
+
+
+// Normalize an event status into an uppercase string.
 function normalizeStatus(s) {
   return String(s || "").toUpperCase();
 }
 
+
+// Parse a date string safely (returns epoch date on failure).
 function parseDateSafe(s) {
   const d = new Date(s);
   return isNaN(d.getTime()) ? new Date(0) : d;
 }
 
+
+// Add a cache-busting query parameter to a URL.
 function getSafeUrl(url) {
   if (!url) return "";
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}cb=${Date.now()}`;
 }
 
-// ===============================
-// AUTH (Lambda Auth)
-// ===============================
+// =============================================================================
+// Auth (Lambda Auth)
+// =============================================================================
+
+
+// Call /auth/me to validate the current token and retrieve role/groups.
 async function authMe() {
   // נבדוק "מי אני" על בסיס token שנשמר
   const idToken = getIdToken();
@@ -93,6 +120,8 @@ async function authMe() {
   return data; // { ok, role, groups, ... }
 }
 
+
+// Call /auth/logout (best-effort) to end the session.
 async function authLogout() {
   await fetch(`${AUTH_BASE_URL}/auth/logout`, {
     method: "POST",
@@ -100,9 +129,12 @@ async function authLogout() {
   }).catch(() => {});
 }
 
-// ===============================
-// API FETCH (adds Authorization to API Gateway)
-// ===============================
+// =============================================================================
+// API fetch (adds Authorization to API Gateway)
+// =============================================================================
+
+
+// Fetch helper that injects Authorization headers and handles auth errors.
 async function apiFetch(path, options = {}) {
   const headers = {
     ...(options.headers || {}),
@@ -126,6 +158,8 @@ async function apiFetch(path, options = {}) {
   return res;
 }
 
+
+// Logout: stop polling, call auth endpoint, clear tokens, then redirect to login.
 async function logout() {
   if (alertPollTimer) clearInterval(alertPollTimer);
   alertPollTimer = null;
@@ -137,9 +171,12 @@ async function logout() {
   window.location.href = "../pages/login.html";
 }
 
-// ===============================
-// LIFEGUARD LOGIC
-// ===============================
+// =============================================================================
+// Lifeguard logic
+// =============================================================================
+
+
+// Poll for OPEN events and display an alert overlay when present.
 async function checkLiveAlerts() {
   const dashboard = document.getElementById("lifeguard-dashboard");
   if (!dashboard || dashboard.classList.contains("hidden")) return;
@@ -183,6 +220,8 @@ async function checkLiveAlerts() {
   }
 }
 
+
+// Render the currently selected alert card into the UI.
 function renderCurrentAlert() {
   if (activeAlertsList.length === 0) return;
   const alertData = activeAlertsList[currentAlertIndex];
@@ -225,6 +264,8 @@ function renderCurrentAlert() {
   if (closeBtn) closeBtn.onclick = () => dismissAlert(alertData.eventId);
 }
 
+
+// Navigate to the next alert in the active list.
 function nextAlert() {
   if (activeAlertsList.length === 0) return;
   currentAlertIndex++;
@@ -232,6 +273,8 @@ function nextAlert() {
   renderCurrentAlert();
 }
 
+
+// Navigate to the previous alert in the active list.
 function prevAlert() {
   if (activeAlertsList.length === 0) return;
   currentAlertIndex--;
@@ -239,6 +282,8 @@ function prevAlert() {
   renderCurrentAlert();
 }
 
+
+// Close an alert by PATCHing the event status to CLOSED.
 async function dismissAlert(eventId) {
   try {
     await apiFetch(`/events`, {
@@ -252,9 +297,12 @@ async function dismissAlert(eventId) {
   }
 }
 
-// ===============================
-// LIGHTBOX
-// ===============================
+// =============================================================================
+// Lightbox
+// =============================================================================
+
+
+// Open the lightbox with a specific image URL.
 function openLightbox(src) {
   const lb = document.getElementById("image-lightbox");
   const img = document.getElementById("lightbox-image");
@@ -264,11 +312,15 @@ function openLightbox(src) {
   }
 }
 
+
+// Open the lightbox for an image by its index in currentLightboxImages.
 function openLightboxByIndex(index) {
   currentLightboxIndex = index;
   updateLightboxView();
 }
 
+
+// Update the lightbox DOM to reflect currentLightboxIndex.
 function updateLightboxView() {
   const lb = document.getElementById("image-lightbox");
   const img = document.getElementById("lightbox-image");
@@ -287,6 +339,8 @@ function updateLightboxView() {
   }
 }
 
+
+// Advance to the next lightbox image.
 function nextLightboxImage() {
   if (currentLightboxImages.length === 0) return;
   currentLightboxIndex =
@@ -294,6 +348,8 @@ function nextLightboxImage() {
   updateLightboxView();
 }
 
+
+// Go back to the previous lightbox image.
 function prevLightboxImage() {
   if (currentLightboxImages.length === 0) return;
   currentLightboxIndex =
@@ -302,9 +358,9 @@ function prevLightboxImage() {
   updateLightboxView();
 }
 
-// ===============================
-// BOOTSTRAP
-// ===============================
+// =============================================================================
+// Bootstrap
+// =============================================================================
 document.addEventListener("DOMContentLoaded", async () => {
   // Lightbox wiring
   const lb = document.getElementById("image-lightbox");

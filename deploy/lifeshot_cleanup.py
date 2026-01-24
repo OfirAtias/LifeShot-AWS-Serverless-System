@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""LifeShot cleanup script.
+
+Cosmetic refactor only:
+- Improves readability via spacing, section headers, and comments.
+- Does not change functionality or behavior.
+"""
+
 import os
 import sys
 import time
@@ -8,11 +15,19 @@ import json
 import boto3
 from botocore.exceptions import ClientError
 
+
+# =============================================================================
+# Configuration (env overrides)
+# =============================================================================
 REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Delete only things matching these prefixes (change if needed)
 STACK_PREFIX = os.getenv("STACK_PREFIX", "LifeShot")  # for Lambda/API/Cognito/Dynamo/SNS naming
-S3_BUCKET_PREFIXES = [p.strip() for p in os.getenv("S3_BUCKET_PREFIXES", "lifeshot,lifeshotweb").split(",") if p.strip()]
+S3_BUCKET_PREFIXES = [
+    p.strip()
+    for p in os.getenv("S3_BUCKET_PREFIXES", "lifeshot,lifeshotweb").split(",")
+    if p.strip()
+]
 
 # Safety switch: start in dry-run mode
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("1", "true", "yes", "y")
@@ -22,28 +37,39 @@ IAM_ROLE_TO_DELETE = os.getenv("IAM_ROLE_TO_DELETE", "LifeShotLambdaRole")
 IAM_INLINE_POLICY_TO_DELETE = os.getenv("IAM_INLINE_POLICY_TO_DELETE", "LifeShotDataAccess")
 
 
+# =============================================================================
+# Small helpers
+# =============================================================================
+
+
+# Log a message to stdout.
 def log(msg: str) -> None:
     print(msg)
 
 
+# Print an error to stderr and exit.
 def die(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
+# Create a boto3 client pinned to the configured region.
 def safe_client(service: str):
     return boto3.client(service, region_name=REGION)
 
 
+# Return True if a resource name matches the configured STACK_PREFIX.
 def should_delete_name(name: str) -> bool:
     return name.startswith(STACK_PREFIX)
 
 
+# Return True if an S3 bucket name matches one of the allowed deletion prefixes.
 def should_delete_bucket(bucket: str) -> bool:
     b = bucket.lower()
     return any(b.startswith(p.lower()) for p in S3_BUCKET_PREFIXES)
 
 
+# Call an AWS API function, optionally ignoring specific error codes.
 def try_call(fn, *, ignore_codes=()):
     try:
         return fn()
@@ -54,6 +80,12 @@ def try_call(fn, *, ignore_codes=()):
         raise
 
 
+# =============================================================================
+# Cleanup steps
+# =============================================================================
+
+
+# Delete API Gateway v2 HTTP APIs that match STACK_PREFIX.
 def delete_apigw_http_apis():
     apigw = safe_client("apigatewayv2")
     log("\n== API Gateway v2 (HTTP APIs) ==")
@@ -68,6 +100,7 @@ def delete_apigw_http_apis():
             try_call(lambda: apigw.delete_api(ApiId=api_id))
 
 
+# Delete Lambda functions (and their Function URLs) and matching Lambda layers.
 def delete_lambda_functions_and_layers():
     lam = safe_client("lambda")
     log("\n== Lambda functions ==")
@@ -85,11 +118,17 @@ def delete_lambda_functions_and_layers():
             # If function URL exists, delete it first (best-effort)
             try:
                 lam.get_function_url_config(FunctionName=name)
-                try_call(lambda: lam.delete_function_url_config(FunctionName=name), ignore_codes=("ResourceNotFoundException",))
+                try_call(
+                    lambda: lam.delete_function_url_config(FunctionName=name),
+                    ignore_codes=("ResourceNotFoundException",),
+                )
             except ClientError:
                 pass
 
-            try_call(lambda: lam.delete_function(FunctionName=name), ignore_codes=("ResourceNotFoundException",))
+            try_call(
+                lambda: lam.delete_function(FunctionName=name),
+                ignore_codes=("ResourceNotFoundException",),
+            )
 
     log("\n== Lambda layers ==")
     # Delete layers that start with STACK_PREFIX or explicit LifeShot-Pillow
@@ -109,9 +148,15 @@ def delete_lambda_functions_and_layers():
             for v in vers:
                 ver = v["Version"]
                 log(f"  - Delete version {ver}")
-                try_call(lambda: lam.delete_layer_version(LayerName=layer_name, VersionNumber=ver), ignore_codes=("ResourceNotFoundException",))
+                try_call(
+                    lambda: lam.delete_layer_version(
+                        LayerName=layer_name, VersionNumber=ver
+                    ),
+                    ignore_codes=("ResourceNotFoundException",),
+                )
 
 
+# Delete CloudWatch log groups for LifeShot Lambdas.
 def delete_cloudwatch_logs():
     logs = safe_client("logs")
     log("\n== CloudWatch Log Groups ==")
@@ -124,9 +169,13 @@ def delete_cloudwatch_logs():
                 continue
             log(f"- Delete LogGroup: {name}")
             if not DRY_RUN:
-                try_call(lambda: logs.delete_log_group(logGroupName=name), ignore_codes=("ResourceNotFoundException",))
+                try_call(
+                    lambda: logs.delete_log_group(logGroupName=name),
+                    ignore_codes=("ResourceNotFoundException",),
+                )
 
 
+# Delete DynamoDB tables that match STACK_PREFIX.
 def delete_dynamodb_tables():
     ddb = safe_client("dynamodb")
     log("\n== DynamoDB tables ==")
@@ -138,9 +187,13 @@ def delete_dynamodb_tables():
             log(f"- Delete table: {t}")
             if DRY_RUN:
                 continue
-            try_call(lambda: ddb.delete_table(TableName=t), ignore_codes=("ResourceNotFoundException",))
+            try_call(
+                lambda: ddb.delete_table(TableName=t),
+                ignore_codes=("ResourceNotFoundException",),
+            )
 
 
+# Delete SNS topics that match STACK_PREFIX.
 def delete_sns_topics():
     sns = safe_client("sns")
     log("\n== SNS topics ==")
@@ -158,6 +211,7 @@ def delete_sns_topics():
             try_call(lambda: sns.delete_topic(TopicArn=arn))
 
 
+# Delete Cognito user pools that match STACK_PREFIX.
 def delete_cognito_user_pools():
     cognito = safe_client("cognito-idp")
     log("\n== Cognito user pools ==")
@@ -169,9 +223,13 @@ def delete_cognito_user_pools():
         pool_id = p["Id"]
         log(f"- Delete user pool: {name} ({pool_id})")
         if not DRY_RUN:
-            try_call(lambda: cognito.delete_user_pool(UserPoolId=pool_id), ignore_codes=("ResourceNotFoundException",))
+            try_call(
+                lambda: cognito.delete_user_pool(UserPoolId=pool_id),
+                ignore_codes=("ResourceNotFoundException",),
+            )
 
 
+# Empty matching S3 buckets (including versions) and delete them.
 def empty_and_delete_s3_buckets():
     s3 = safe_client("s3")
     log("\n== S3 buckets ==")
@@ -197,7 +255,9 @@ def empty_and_delete_s3_buckets():
             key_marker = None
             ver_marker = None
             while True:
-                resp = s3.list_object_versions(Bucket=name, KeyMarker=key_marker, VersionIdMarker=ver_marker)
+                resp = s3.list_object_versions(
+                    Bucket=name, KeyMarker=key_marker, VersionIdMarker=ver_marker
+                )
                 objs = []
                 for v in resp.get("Versions", []):
                     objs.append({"Key": v["Key"], "VersionId": v["VersionId"]})
@@ -207,8 +267,11 @@ def empty_and_delete_s3_buckets():
                 if objs:
                     # batch delete in chunks
                     for i in range(0, len(objs), 1000):
-                        chunk = objs[i:i+1000]
-                        s3.delete_objects(Bucket=name, Delete={"Objects": chunk, "Quiet": True})
+                        chunk = objs[i : i + 1000]
+                        s3.delete_objects(
+                            Bucket=name,
+                            Delete={"Objects": chunk, "Quiet": True},
+                        )
 
                 if not resp.get("IsTruncated"):
                     break
@@ -226,8 +289,11 @@ def empty_and_delete_s3_buckets():
                 if contents:
                     objs = [{"Key": o["Key"]} for o in contents]
                     for i in range(0, len(objs), 1000):
-                        chunk = objs[i:i+1000]
-                        s3.delete_objects(Bucket=name, Delete={"Objects": chunk, "Quiet": True})
+                        chunk = objs[i : i + 1000]
+                        s3.delete_objects(
+                            Bucket=name,
+                            Delete={"Objects": chunk, "Quiet": True},
+                        )
 
                 if not resp.get("IsTruncated"):
                     break
@@ -237,6 +303,7 @@ def empty_and_delete_s3_buckets():
         try_call(lambda: s3.delete_bucket(Bucket=name))
 
 
+    # Cleanup project IAM role/policies (explicitly does not touch LabRole).
 def cleanup_iam():
     iam = safe_client("iam")
     log("\n== IAM (project role/policy) ==")
@@ -250,8 +317,13 @@ def cleanup_iam():
     log(f"- Remove inline policy '{IAM_INLINE_POLICY_TO_DELETE}' from role '{IAM_ROLE_TO_DELETE}' (if exists)")
     if not DRY_RUN:
         try:
-            try_call(lambda: iam.delete_role_policy(RoleName=IAM_ROLE_TO_DELETE, PolicyName=IAM_INLINE_POLICY_TO_DELETE),
-                     ignore_codes=("NoSuchEntity",))
+            try_call(
+                lambda: iam.delete_role_policy(
+                    RoleName=IAM_ROLE_TO_DELETE,
+                    PolicyName=IAM_INLINE_POLICY_TO_DELETE,
+                ),
+                ignore_codes=("NoSuchEntity",),
+            )
         except ClientError as e:
             log(f"  (warn) {e}")
 
@@ -263,8 +335,13 @@ def cleanup_iam():
             for ap in resp.get("AttachedPolicies", []):
                 arn = ap["PolicyArn"]
                 log(f"  - Detach {arn}")
-                try_call(lambda: iam.detach_role_policy(RoleName=IAM_ROLE_TO_DELETE, PolicyArn=arn),
-                         ignore_codes=("NoSuchEntity",))
+                try_call(
+                    lambda: iam.detach_role_policy(
+                        RoleName=IAM_ROLE_TO_DELETE,
+                        PolicyArn=arn,
+                    ),
+                    ignore_codes=("NoSuchEntity",),
+                )
         except ClientError as e:
             code = e.response.get("Error", {}).get("Code", "")
             if code != "NoSuchEntity":
@@ -279,6 +356,12 @@ def cleanup_iam():
             log(f"  (warn) {e}")
 
 
+# =============================================================================
+# Entrypoint
+# =============================================================================
+
+
+# Main cleanup flow (calls cleanup steps in a safe deletion order).
 def main():
     sts = safe_client("sts")
     try:

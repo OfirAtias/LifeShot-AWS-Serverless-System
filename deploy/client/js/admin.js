@@ -1,6 +1,12 @@
-// ===============================
-// CONFIG
-// ===============================
+// LifeShot Admin Dashboard (browser-side logic).
+//
+// Cosmetic refactor only:
+// - Improves readability via spacing, section headers, and comments.
+// - Does not change functionality or behavior.
+
+// =============================================================================
+// Config
+// =============================================================================
 // 1) Try localStorage first (so bucket/urls won’t “run away”)
 const API_BASE_URL =
   localStorage.getItem("LS_API_BASE_URL") ||
@@ -38,9 +44,12 @@ if (!DETECTOR_LAMBDA_URL) {
   );
 }
 
-// ===============================
-// TOKEN STORAGE (LOCALSTORAGE)
-// ===============================
+// =============================================================================
+// Token storage (localStorage)
+// =============================================================================
+
+
+// Clear all stored tokens and expiry metadata.
 function clearTokens() {
   localStorage.removeItem("ls_access_token");
   localStorage.removeItem("ls_id_token");
@@ -48,14 +57,20 @@ function clearTokens() {
   localStorage.removeItem("ls_expires_at");
 }
 
+
+// Read the stored access token.
 function getAccessToken() {
   return localStorage.getItem("ls_access_token") || "";
 }
 
+
+// Read the stored ID token.
 function getIdToken() {
   return localStorage.getItem("ls_id_token") || "";
 }
 
+
+// Determine whether the saved token expiry has passed.
 function isTokenExpired() {
   const exp = Number(localStorage.getItem("ls_expires_at") || "0");
   if (!exp) return false; // אם אין expires, לא חוסמים
@@ -63,21 +78,24 @@ function isTokenExpired() {
 }
 
 // API Gateway JWT Authorizer
+// Choose the token that will be sent to API Gateway (prefers access token).
 function getApiBearerToken() {
   const at = getAccessToken();
   if (at) return at;
   return getIdToken(); // fallback
 }
 
+
+// Build an Authorization header if token exists and is not expired.
 function authHeader() {
   const token = getApiBearerToken();
   if (!token || isTokenExpired()) return {};
   return { Authorization: `Bearer ${token}` };
 }
 
-// ===============================
-// STATE
-// ===============================
+// =============================================================================
+// State
+// =============================================================================
 let allEvents = [];
 let currentLightboxImages = [];
 let currentLightboxIndex = 0;
@@ -87,6 +105,8 @@ let myPieChart = null; // משתנה לשמירת הגרף
 let detectorInFlight = false;
 let detectorAbort = null;
 
+
+// Enable/disable the run-test buttons while the detector is in-flight.
 function setDetectorButtonsDisabled(disabled) {
   // ✅ Update these IDs to match your actual buttons if needed
   const btn1 = document.getElementById("btn-run-test1");
@@ -107,27 +127,37 @@ window.LS_stopDetector = function () {
   console.log("Detector aborted by user");
 };
 
-// ===============================
-// HELPERS
-// ===============================
+// =============================================================================
+// Helpers
+// =============================================================================
+
+
+// Normalize an event status into an uppercase string.
 function normalizeStatus(s) {
   return String(s || "").toUpperCase();
 }
 
+
+// Parse a date string safely (returns epoch date on failure).
 function parseDateSafe(s) {
   const d = new Date(s);
   return isNaN(d.getTime()) ? new Date(0) : d;
 }
 
+
+// Add a cache-busting query parameter to a URL.
 function getSafeUrl(url) {
   if (!url) return "";
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}cb=${Date.now()}`;
 }
 
-// ===============================
-// HELPER: Number Counter Animation
-// ===============================
+// =============================================================================
+// Number counter animation
+// =============================================================================
+
+
+// Animate a numeric counter in the UI up to targetValue.
 function animateCounter(element, targetValue, duration = 1500) {
   if (!element) return;
 
@@ -153,9 +183,12 @@ function animateCounter(element, targetValue, duration = 1500) {
   requestAnimationFrame(update);
 }
 
-// ===============================
-//  LOADING OVERLAY (Injected UI)
-// ===============================
+// =============================================================================
+// Loading overlay (injected UI)
+// =============================================================================
+
+
+// Inject the detector overlay HTML/CSS once.
 function ensureDetectorOverlay() {
   if (document.getElementById("detector-overlay")) return;
 
@@ -238,6 +271,8 @@ function ensureDetectorOverlay() {
   document.body.appendChild(overlay);
 }
 
+
+// Toggle the detector overlay and optionally update its UI text.
 function setDetectorOverlay(active, { title, msg, status, spinning } = {}) {
   ensureDetectorOverlay();
   const overlay = document.getElementById("detector-overlay");
@@ -256,13 +291,18 @@ function setDetectorOverlay(active, { title, msg, status, spinning } = {}) {
   else overlay.classList.remove("active");
 }
 
+
+// Sleep helper for delaying UI transitions.
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ===============================
-// AUTH (Lambda Auth)
-// ===============================
+// =============================================================================
+// Auth (Lambda Auth)
+// =============================================================================
+
+
+// Call /auth/me to validate the current token and retrieve role/groups.
 async function authMe() {
   const idToken = getIdToken();
   if (!idToken || isTokenExpired()) return null;
@@ -278,6 +318,8 @@ async function authMe() {
   return data; // { ok, role, groups, ... }
 }
 
+
+// Call /auth/logout (best-effort) to end the session.
 async function authLogout() {
   await fetch(`${AUTH_BASE_URL}/auth/logout`, {
     method: "POST",
@@ -285,9 +327,12 @@ async function authLogout() {
   }).catch(() => {});
 }
 
-// ===============================
-// API FETCH (adds Authorization to API Gateway)
-// ===============================
+// =============================================================================
+// API fetch (adds Authorization for API Gateway)
+// =============================================================================
+
+
+// Fetch helper that injects Authorization headers and handles auth errors.
 async function apiFetch(path, options = {}) {
   const headers = {
     ...(options.headers || {}),
@@ -311,6 +356,8 @@ async function apiFetch(path, options = {}) {
   return res;
 }
 
+
+// Attempt to delete an event (requires backend support).
 async function deleteEvent(eventId) {
   if (!eventId) return;
 
@@ -336,9 +383,12 @@ async function deleteEvent(eventId) {
   }
 }
 
-// ===============================
-// UI NAV
-// ===============================
+// =============================================================================
+// UI navigation
+// =============================================================================
+
+
+// Show a given screen and hide the others.
 function showScreen(id) {
   ["manager-dashboard", "demo-screen"].forEach((s) => {
     const el = document.getElementById(s);
@@ -352,15 +402,20 @@ function showScreen(id) {
   }
 }
 
+
+// Logout: call auth endpoint, clear tokens, then redirect to login.
 async function logout() {
   await authLogout();
   clearTokens();
   window.location.href = "../pages/login.html";
 }
 
-// ===============================
-//  RUN DETECTOR (LifeShot-Detector Lambda Function URL)
-// ===============================
+// =============================================================================
+// Run detector (LifeShot-Detector Lambda Function URL)
+// =============================================================================
+
+
+// Trigger the detector for a specific demo test dataset.
 async function runDetectorTest(testName) {
   // ✅ HARD STOP: no parallel runs / no chaining
   if (detectorInFlight) {
@@ -460,9 +515,12 @@ async function runDetectorTest(testName) {
   }
 }
 
-// ===============================
-// MANAGER LOGIC
-// ===============================
+// =============================================================================
+// Manager logic
+// =============================================================================
+
+
+// Fetch event list from API and update UI widgets.
 async function fetchEvents() {
   try {
     const res = await apiFetch(`/events`);
@@ -490,6 +548,8 @@ async function fetchEvents() {
   }
 }
 
+
+// Render the events gallery cards (and prepare lightbox image list).
 function renderGallery(data) {
   const container = document.getElementById("events-gallery-container");
   if (!container) return;
@@ -574,21 +634,28 @@ function renderGallery(data) {
   });
 }
 
+
+// Filter gallery by status.
 function filterTable(type) {
   if (type === "ALL") renderGallery(allEvents);
   else
     renderGallery(allEvents.filter((e) => normalizeStatus(e.status) === type));
 }
 
-// ===============================
-// DEMO PAGE LOGIC
-// ===============================
+// =============================================================================
+// Demo page logic
+// =============================================================================
+
+
+// Render the demo screen with two camera grids.
 function renderDemoPage() {
   currentLightboxImages = [];
   renderSingleCamera("demo-container-cam1", "Test1", 8);
   renderSingleCamera("demo-container-cam2", "Test2", 12);
 }
 
+
+// Render a single camera image grid and wire up lightbox clicks.
 function renderSingleCamera(containerId, folderName, imageCount) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -622,9 +689,12 @@ function renderSingleCamera(containerId, folderName, imageCount) {
   container.appendChild(gridDiv);
 }
 
-// ===============================
-// LIGHTBOX
-// ===============================
+// =============================================================================
+// Lightbox
+// =============================================================================
+
+
+// Open the lightbox with a specific image URL.
 function openLightbox(src) {
   const lb = document.getElementById("image-lightbox");
   const img = document.getElementById("lightbox-image");
@@ -634,11 +704,15 @@ function openLightbox(src) {
   }
 }
 
+
+// Open the lightbox for an image by its index in currentLightboxImages.
 function openLightboxByIndex(index) {
   currentLightboxIndex = index;
   updateLightboxView();
 }
 
+
+// Update the lightbox DOM to reflect currentLightboxIndex.
 function updateLightboxView() {
   const lb = document.getElementById("image-lightbox");
   const img = document.getElementById("lightbox-image");
@@ -656,6 +730,8 @@ function updateLightboxView() {
   }
 }
 
+
+// Advance to the next lightbox image.
 function nextLightboxImage() {
   if (currentLightboxImages.length === 0) return;
   currentLightboxIndex =
@@ -663,6 +739,8 @@ function nextLightboxImage() {
   updateLightboxView();
 }
 
+
+// Go back to the previous lightbox image.
 function prevLightboxImage() {
   if (currentLightboxImages.length === 0) return;
   currentLightboxIndex =
@@ -671,9 +749,12 @@ function prevLightboxImage() {
   updateLightboxView();
 }
 
-// ===============================
-// MANGER DASHBOARD CHART
-// ===============================
+// =============================================================================
+// Manager dashboard chart
+// =============================================================================
+
+
+// Update the doughnut chart with recent activity stats.
 function updateManagerChart(events) {
   const canvas = document.getElementById("eventsPieChart");
   const titleElement = document.getElementById("chartTitle");
@@ -786,9 +867,9 @@ function updateManagerChart(events) {
   });
 }
 
-// ===============================
-// BOOTSTRAP
-// ===============================
+// =============================================================================
+// Bootstrap
+// =============================================================================
 document.addEventListener("DOMContentLoaded", async () => {
   // inject overlay early (so first click is instant)
   ensureDetectorOverlay();

@@ -1,3 +1,10 @@
+"""Render-and-upload Lambda.
+
+Cosmetic refactor only:
+- Improves readability via spacing, section headers, and comments.
+- Does not change functionality or behavior.
+"""
+
 import boto3
 import json
 import io
@@ -5,11 +12,25 @@ import os
 from PIL import Image, ImageDraw
 from botocore.exceptions import ClientError
 
+ 
+# =============================================================================
+# AWS clients
+# =============================================================================
 s3 = boto3.client("s3")
 
+ 
+# =============================================================================
+# Environment configuration
+# =============================================================================
 DEFAULT_PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))
 
 
+# =============================================================================
+# Geometry helpers
+# =============================================================================
+
+
+# Convert a Rekognition-style bounding box (normalized floats) into pixel coords.
 def _px(box, W, H):
     x1 = int(float(box["Left"]) * W)
     y1 = int(float(box["Top"]) * H)
@@ -18,6 +39,12 @@ def _px(box, W, H):
     return x1, y1, x2, y2
 
 
+# =============================================================================
+# S3 helpers
+# =============================================================================
+
+
+# Create a pre-signed S3 GET URL (or None on failure).
 def presign_get_url(bucket, key, expires):
     try:
         return s3.generate_presigned_url(
@@ -29,6 +56,12 @@ def presign_get_url(bucket, key, expires):
         return None
 
 
+# =============================================================================
+# Rendering
+# =============================================================================
+
+
+# Download an image from S3, draw annotations, and return PNG bytes.
 def render_png(src_bucket, src_key, title, curr_boxes, missing_boxes):
     img_bytes = s3.get_object(Bucket=src_bucket, Key=src_key)["Body"].read()
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
@@ -57,6 +90,21 @@ def render_png(src_bucket, src_key, title, curr_boxes, missing_boxes):
     return out_buf.getvalue()
 
 
+# =============================================================================
+# Lambda handler
+# =============================================================================
+
+
+# Expected payload:
+# {
+#   "bucket": "...",
+#   "src_key": "...",
+#   "out_key": "...",
+#   "title": "...",
+#   "curr_boxes": [...],
+#   "missing_boxes": [...],
+#   "presign_expires": 3600
+# }
 def lambda_handler(event, context):
     # expected payload:
     # {
@@ -81,7 +129,9 @@ def lambda_handler(event, context):
             return {"ok": False, "error": "bucket/src_key/out_key required"}
 
         png_bytes = render_png(bucket, src_key, title, curr_boxes, missing_boxes)
-        s3.put_object(Bucket=bucket, Key=out_key, Body=png_bytes, ContentType="image/png")
+        s3.put_object(
+            Bucket=bucket, Key=out_key, Body=png_bytes, ContentType="image/png"
+        )
 
         out_url = presign_get_url(bucket, out_key, expires)
         return {"ok": True, "out_key": out_key, "out_url": out_url}

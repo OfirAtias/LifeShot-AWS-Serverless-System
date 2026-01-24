@@ -1,3 +1,10 @@
+"""LifeShot Events API Lambda.
+
+Cosmetic refactor only:
+- Improves readability via spacing, section headers, and comments.
+- Does not change functionality or behavior.
+"""
+
 import json
 import boto3
 import os
@@ -5,17 +12,33 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from botocore.exceptions import ClientError
 
+
+# =============================================================================
+# AWS clients
+# =============================================================================
 dynamodb = boto3.resource("dynamodb")
 s3_client = boto3.client("s3")
 
+
+# =============================================================================
+# Environment configuration
+# =============================================================================
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
 # Prefer FRAMES_BUCKET; fallback to IMAGES_BUCKET; fallback default
-FRAMES_BUCKET_ENV = os.getenv("FRAMES_BUCKET", os.getenv("IMAGES_BUCKET", "lifeshot-pool-images")).strip()
+FRAMES_BUCKET_ENV = os.getenv(
+    "FRAMES_BUCKET", os.getenv("IMAGES_BUCKET", "lifeshot-pool-images")
+).strip()
 
 PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "900"))
 
 
+# =============================================================================
+# JSON encoding helpers
+# =============================================================================
+
+
+# JSON encoder that converts DynamoDB Decimal values into JSON-friendly numbers.
 class DecimalEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Decimal):
@@ -23,6 +46,12 @@ class DecimalEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+# =============================================================================
+# HTTP helpers
+# =============================================================================
+
+
+# Standard CORS headers for the Events API.
 def _cors_headers():
     return {
         "Content-Type": "application/json",
@@ -32,6 +61,7 @@ def _cors_headers():
     }
 
 
+# Build an API Gateway response payload.
 def _response(code, body_obj):
     return {
         "statusCode": code,
@@ -40,6 +70,7 @@ def _response(code, body_obj):
     }
 
 
+# Generate a pre-signed S3 GET URL (or None if missing inputs / error).
 def _presign_get(bucket, key):
     if not key or not bucket:
         return None
@@ -53,10 +84,12 @@ def _presign_get(bucket, key):
         return None
 
 
+# Current time in UTC, formatted as ISO 8601 with trailing 'Z'.
 def _iso_utc_now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+# Resolve the most appropriate bucket for an event item.
 def _resolve_bucket_for_event(item: dict) -> str:
     """
     Priority:
@@ -70,6 +103,7 @@ def _resolve_bucket_for_event(item: dict) -> str:
     return FRAMES_BUCKET_ENV or "lifeshot-pool-images"
 
 
+# Extract JWT claims from an API Gateway v2 event (HTTP API + JWT authorizer).
 def _claims_from_event(event: dict) -> dict:
     """
     Works with API Gateway v2 HTTP API + JWT authorizer:
@@ -86,6 +120,7 @@ def _claims_from_event(event: dict) -> dict:
         return {}
 
 
+# Determine whether the caller is authenticated based on presence of JWT claims.
 def _is_authenticated(event: dict) -> bool:
     """
     We rely on API Gateway JWT Authorizer to validate token.
@@ -95,6 +130,12 @@ def _is_authenticated(event: dict) -> bool:
     return bool(claims)  # usually contains sub, iss, client_id, token_use, etc.
 
 
+# =============================================================================
+# Lambda handler
+# =============================================================================
+
+
+# Routes requests for the Events API (GET list events, PATCH close event).
 def lambda_handler(event, context):
     path = event.get("rawPath") or event.get("path") or ""
     if not path and "requestContext" in event:

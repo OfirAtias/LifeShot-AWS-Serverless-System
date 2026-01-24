@@ -3,21 +3,30 @@ import {
   InitiateAuthCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 
-// ===============================
-// ENV
-// ===============================
+// LifeShot Auth Lambda (Cognito).
+//
+// Cosmetic refactor only:
+// - Improves readability via spacing, section headers, and comments.
+// - Does not change functionality or behavior.
+
+// =============================================================================
+// Environment
+// =============================================================================
 const REGION = process.env.COGNITO_REGION || "us-east-1";
 const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "http://localhost:5500";
 
-// sanity
+// Sanity check.
 if (!CLIENT_ID) console.warn("Missing env COGNITO_CLIENT_ID");
 
 const cognito = new CognitoIdentityProviderClient({ region: REGION });
 
-// ===============================
-// HELPERS
-// ===============================
+// =============================================================================
+// Helpers
+// =============================================================================
+
+
+// Build CORS headers using a single allowed origin.
 function corsHeaders(origin) {
   const reqOrigin = origin || "";
   const allowOrigin =
@@ -32,6 +41,8 @@ function corsHeaders(origin) {
   };
 }
 
+
+// Build a JSON HTTP response with CORS.
 function json(statusCode, bodyObj, origin, extraHeaders = {}) {
   return {
     statusCode,
@@ -44,6 +55,8 @@ function json(statusCode, bodyObj, origin, extraHeaders = {}) {
   };
 }
 
+
+// Parse request body as JSON, returning an object (or {} on failure).
 function parseJsonBody(event) {
   try {
     if (!event.body) return {};
@@ -53,6 +66,8 @@ function parseJsonBody(event) {
   }
 }
 
+
+// Decode a JWT payload without verifying signature (for claims inspection only).
 function decodeJwtPayload(token) {
   try {
     const parts = String(token || "").split(".");
@@ -67,6 +82,8 @@ function decodeJwtPayload(token) {
   }
 }
 
+
+// Determine app role from Cognito group memberships.
 function getRoleFromGroups(groups) {
   const g = (groups || []).map((x) => String(x).toLowerCase());
   if (g.includes("admins") || g.includes("admin")) return "admin";
@@ -79,6 +96,8 @@ function getRoleFromGroups(groups) {
   return "unknown";
 }
 
+
+// Extract bearer token from Authorization header.
 function getBearerToken(event) {
   const h = event.headers || {};
   const auth = h.authorization || h.Authorization || "";
@@ -86,9 +105,13 @@ function getBearerToken(event) {
   return m ? m[1].trim() : "";
 }
 
-// ===============================
-// ROUTES
-// ===============================
+// =============================================================================
+// Routes
+// =============================================================================
+
+
+// POST /auth/login
+// Exchanges username/password for Cognito tokens and returns basic user profile.
 async function routeLogin(event, origin) {
   const body = parseJsonBody(event);
   const username = String(body.username || "").trim();
@@ -138,7 +161,7 @@ async function routeLogin(event, origin) {
         expiresIn,
         accessToken,
         idToken,
-        refreshToken, // Optional, if no ans it will be = ""
+        refreshToken, // Optional; if not returned it will be "".
       },
       origin,
     );
@@ -148,8 +171,11 @@ async function routeLogin(event, origin) {
   }
 }
 
+
+// GET /auth/me
+// Returns role + basic identity by decoding the provided Bearer token.
 async function routeMe(event, origin) {
-  const token = getBearerToken(event); //  idToken or accessToken
+  const token = getBearerToken(event); // idToken or accessToken
   if (!token)
     return json(401, { ok: false, message: "Missing Bearer token" }, origin);
 
@@ -175,13 +201,16 @@ async function routeMe(event, origin) {
   );
 }
 
+
+// POST /auth/logout
+// Stateless endpoint (client discards tokens).
 async function routeLogout(event, origin) {
   return json(200, { ok: true }, origin);
 }
 
-// ===============================
-// MAIN HANDLER
-// ===============================
+// =============================================================================
+// Main handler
+// =============================================================================
 export const handler = async (event) => {
   const method = event.requestContext?.http?.method || event.httpMethod || "";
   const path =

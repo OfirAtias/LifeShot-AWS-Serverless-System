@@ -56,9 +56,9 @@ import boto3
 from botocore.exceptions import ClientError
 
 
-# -------------------------
+# =============================================================================
 # Config (env overrides)
-# -------------------------
+# =============================================================================
 REGION = os.getenv("AWS_REGION", "us-east-1")
 STACK_PREFIX = os.getenv("STACK_PREFIX", "LifeShot")
 
@@ -113,9 +113,9 @@ LAB_ROLE_NAME = os.getenv("LAB_ROLE_NAME", "LabRole")
 LOGIN_RUNTIME = os.getenv("LOGIN_RUNTIME", "nodejs20.x")
 DEFAULT_PY_RUNTIME = os.getenv("DEFAULT_PY_RUNTIME", "python3.11")
 
-# -------------------------
+# =============================================================================
 # S3 + DynamoDB data-plane config
-# -------------------------
+# =============================================================================
 FRAMES_BUCKET = os.getenv("FRAMES_BUCKET", "lifeshot-pool-images")
 FRAMES_PREFIX = os.getenv("FRAMES_PREFIX", "LifeShot/DrowningSet")
 
@@ -125,10 +125,12 @@ DATASET_TEST2 = os.getenv("DATASET_TEST2", "Test2")
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
 
-# -------------------------
+# =============================================================================
 # Frontend (S3 static website)
-# -------------------------
-FRONTEND_BUCKET_NAME = os.getenv("FRONTEND_BUCKET_NAME",f"lifeshotweb-{uuid.uuid4().hex[:6]}")
+# =============================================================================
+FRONTEND_BUCKET_NAME = os.getenv(
+        "FRONTEND_BUCKET_NAME", f"lifeshotweb-{uuid.uuid4().hex[:6]}"
+)
 FRONTEND_DIR = os.getenv(
   "FRONTEND_DIR",
   os.path.join(os.path.dirname(os.path.abspath(__file__)), "client")
@@ -139,9 +141,12 @@ FRONTEND_DIR = os.getenv(
 FRONTEND_CORS_ALLOWED_ORIGINS = os.getenv("FRONTEND_CORS_ALLOWED_ORIGINS", "*")
 
 
-# -------------------------
+# =============================================================================
 # Helpers
-# -------------------------
+# =============================================================================
+
+
+# Run an AWS call with retry for ResourceConflictException.
 def retry_on_conflict(fn, *, retries: int = 12, delay_sec: int = 3):
     last = None
     for _ in range(retries):
@@ -157,33 +162,40 @@ def retry_on_conflict(fn, *, retries: int = 12, delay_sec: int = 3):
     raise last
 
 
+# Log with a consistent timestamp prefix.
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
 
+# Print an error and exit the process.
 def die(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
+# Ensure a command exists on PATH.
 def need_cmd(cmd: str) -> None:
     if shutil.which(cmd) is None:
         die(f"Missing command on PATH: {cmd}")
 
 
+# Read a zip file from disk (used for Lambda deployment packages).
 def b64_zip_bytes(path: str) -> bytes:
     with open(path, "rb") as f:
         return f.read()
 
 
+# Create a boto3 client pinned to the configured region.
 def safe_client(service: str):
     return boto3.client(service, region_name=REGION)
 
 
+# Resolve current AWS account ID.
 def get_account_id(sts) -> str:
     return sts.get_caller_identity()["Account"]
 
 
+# Wait until a Lambda becomes Active.
 def wait_lambda_active(client_lambda, fn_name: str, timeout_sec: int = 180) -> None:
     """
     Wait until a Lambda function is Active. Prevents ResourceConflictException
@@ -209,6 +221,7 @@ def wait_lambda_active(client_lambda, fn_name: str, timeout_sec: int = 180) -> N
         raise RuntimeError(f"Lambda did not become Active in time: {fn_name}")
 
 
+    # Ensure a specific Lambda permission statement exists (idempotent).
 def ensure_lambda_permission_invoke(
     client_lambda,
     fn_name: str,
@@ -246,6 +259,7 @@ def ensure_lambda_permission_invoke(
         raise
 
 
+# Merge environment variables without clobbering unrelated keys.
 def merge_env(existing: Optional[Dict[str, str]], updates: Dict[str, Optional[str]]) -> Dict[str, str]:
     cur = dict(existing or {})
     for k, v in updates.items():
@@ -256,6 +270,7 @@ def merge_env(existing: Optional[Dict[str, str]], updates: Dict[str, Optional[st
     return cur
 
 
+# Create a zip file from an on-disk directory.
 def zip_from_dir(src_dir: str, out_zip: str) -> None:
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for root, _, files in os.walk(src_dir):
@@ -265,18 +280,23 @@ def zip_from_dir(src_dir: str, out_zip: str) -> None:
                 z.write(full, rel)
 
 
+# Current UTC time string in ISO-like format.
 def now_utc_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-# -------------------------
-# NEW: Frontend S3 static website hosting deploy
-# -------------------------
+# =============================================================================
+# Frontend S3 static website hosting deploy
+# =============================================================================
+
+
+# Parse a comma-separated env var into a list of non-empty items.
 def _parse_csv_env(value: str) -> List[str]:
     items = [x.strip() for x in str(value or "").split(",")]
     return [x for x in items if x]
 
 
+# Ensure the frontend bucket exists (create if missing).
 def ensure_frontend_bucket_exists(s3, bucket: str, region: str) -> None:
     try:
         s3.head_bucket(Bucket=bucket)
@@ -299,6 +319,7 @@ def ensure_frontend_bucket_exists(s3, bucket: str, region: str) -> None:
     time.sleep(2)
 
 
+# Configure the frontend bucket for public read access.
 def ensure_frontend_public_access(s3, bucket: str) -> None:
     # Disable Block Public Access (all flags false)
     s3.put_public_access_block(
@@ -327,6 +348,7 @@ def ensure_frontend_public_access(s3, bucket: str) -> None:
     s3.put_bucket_policy(Bucket=bucket, Policy=json.dumps(policy))
 
 
+# Enable static website hosting for the frontend bucket.
 def ensure_frontend_website_hosting(s3, bucket: str) -> None:
     s3.put_bucket_website(
         Bucket=bucket,
@@ -337,6 +359,7 @@ def ensure_frontend_website_hosting(s3, bucket: str) -> None:
     )
 
 
+# Set bucket-level CORS for serving frontend assets.
 def ensure_frontend_bucket_cors(s3, bucket: str, allowed_origins: List[str]) -> None:
     s3.put_bucket_cors(
         Bucket=bucket,
@@ -353,6 +376,7 @@ def ensure_frontend_bucket_cors(s3, bucket: str, allowed_origins: List[str]) -> 
     )
 
 
+# Determine an appropriate Content-Type for a file upload.
 def _content_type_for_file(path: str) -> str:
     # Ensure common types are correct across OSes
     mimetypes.add_type("application/javascript", ".js")
@@ -364,6 +388,7 @@ def _content_type_for_file(path: str) -> str:
     return ctype or "application/octet-stream"
 
 
+# Upload all frontend files from local_dir into the bucket.
 def upload_frontend_dir(s3, bucket: str, local_dir: str) -> int:
     if not os.path.isdir(local_dir):
         raise RuntimeError(f"Frontend dir not found: {local_dir}")
@@ -381,6 +406,7 @@ def upload_frontend_dir(s3, bucket: str, local_dir: str) -> int:
     return uploaded
 
 
+# Write config.js into the frontend bucket (used by client pages at runtime).
 def put_frontend_config_js(s3, bucket: str, api_base_url: str, detector_lambda_url: str) -> None:
     # This file is loaded by HTML pages to set window.API_BASE_URL, etc.
     body = (
@@ -399,6 +425,7 @@ def put_frontend_config_js(s3, bucket: str, api_base_url: str, detector_lambda_u
     )
 
 
+# Deploy the frontend website content and return the website endpoint URL.
 def deploy_frontend_static_website(
     s3,
     *,
@@ -425,9 +452,12 @@ def deploy_frontend_static_website(
     return f"http://{bucket}.s3-website-{region}.amazonaws.com"
 
 
-# -------------------------
-# NEW: S3 helpers (AUTO bucket creation if not writeable)
-# -------------------------
+# =============================================================================
+# S3 helpers (AUTO bucket creation if not writeable)
+# =============================================================================
+
+
+# Return True if the script can write and delete objects in the bucket.
 def _s3_can_write(s3, bucket: str) -> bool:
     test_key = f"LifeShot/_bootstrap_write_test_{int(time.time())}.txt"
     try:
@@ -443,8 +473,9 @@ def _s3_can_write(s3, bucket: str) -> bool:
             return False
         return False
 
+
+# Return True if there is at least one real object under prefix.
 def s3_prefix_has_files(s3, bucket: str, prefix: str) -> bool:
-    """Return True if there is at least one real object under prefix."""
     if not prefix.endswith("/"):
         prefix += "/"
     resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=5)
@@ -456,6 +487,8 @@ def s3_prefix_has_files(s3, bucket: str, prefix: str) -> bool:
             return True
     return False
 
+
+# Sort helper: extract the first number from a filename.
 def _numeric_sort_key(path: str):
     """
     Extract first number from filename for proper ordering:
@@ -467,6 +500,7 @@ def _numeric_sort_key(path: str):
     return int(m.group(1)) if m else 0
 
 
+# Upload images from a local directory to an S3 prefix in numeric order.
 def upload_images_to_prefix(s3, bucket: str, local_dir: str, prefix: str) -> int:
     files = list_image_files(local_dir)
     files.sort(key=_numeric_sort_key)
@@ -484,10 +518,8 @@ def upload_images_to_prefix(s3, bucket: str, local_dir: str, prefix: str) -> int
             key,
             ExtraArgs={
                 # bonus: keep explicit ordering metadata (optional)
-                "Metadata": {
-                    "frame_index": str(idx)
-                }
-            }
+                "Metadata": {"frame_index": str(idx)}
+            },
         )
 
         uploaded += 1
@@ -495,6 +527,8 @@ def upload_images_to_prefix(s3, bucket: str, local_dir: str, prefix: str) -> int
     log(f"Uploaded {uploaded} images to s3://{bucket}/{prefix} in numeric order")
     return uploaded
 
+
+# Find a previously-created bucket (by naming convention) that is writeable.
 def find_existing_writeable_bucket(s3, base_name: str, account_id: str) -> Optional[str]:
     """
     Finds an existing bucket created by this script, e.g.

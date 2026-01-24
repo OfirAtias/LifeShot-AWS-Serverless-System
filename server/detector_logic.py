@@ -1,3 +1,9 @@
+"""LifeShot detector logic.
+
+NOTE: This file has been cosmetically refactored for readability only.
+No functional behavior, logic, or outputs are intended to change.
+"""
+
 import boto3
 import json
 import os
@@ -5,11 +11,12 @@ import re
 import math
 import time
 from datetime import datetime, timezone
+
 from botocore.exceptions import ClientError
 
-# =========================
-# ENV CONFIG
-# =========================
+# =============================================================================
+# Environment configuration
+# =============================================================================
 # You can pass one of these:
 # - FRAMES_BUCKET="lifeshot-pool-images-123..."
 # - FRAMES_BUCKET_PREFIX="lifeshot-pool-images-"   (recommended for "bucket changes")
@@ -33,10 +40,10 @@ MATCH_CENTER_MAX = float(os.getenv("MATCH_CENTER_MAX", "0.12"))
 
 PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))
 
-# Events lambda already has its own EVENTS_TABLE_NAME + SNS_TOPIC_ARN in env vars
+# Events lambda already has its own EVENTS_TABLE_NAME + SNS_TOPIC_ARN in env vars.
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
-# Names of the other two Lambdas
+# Names of the other two Lambdas.
 RENDER_LAMBDA_NAME = os.getenv("RENDER_LAMBDA_NAME", "LifeShot_RenderAndS3")
 EVENTS_LAMBDA_NAME = os.getenv("EVENTS_LAMBDA_NAME", "LifeShot_EventsAndSNS")
 
@@ -45,9 +52,12 @@ s3 = boto3.client("s3")
 lambda_client = boto3.client("lambda")
 
 
-# =========================
+# =============================================================================
 # Helpers
-# =========================
+# =============================================================================
+
+
+# Build an API Gateway / Function URL style JSON response.
 def _resp(code, body_obj):
     return {
         "statusCode": code,
@@ -56,17 +66,23 @@ def _resp(code, body_obj):
     }
 
 
+
+# Return True if the S3 key looks like a supported image file.
 def _is_image_key(key: str) -> bool:
     k = key.lower()
     return k.endswith(".png") or k.endswith(".jpg") or k.endswith(".jpeg")
 
 
+
+# Return the filename (no folders) without image extension.
 def _basename(key: str) -> str:
     name = key.split("/")[-1]
     name = re.sub(r"\.(png|jpg|jpeg)$", "", name, flags=re.IGNORECASE)
     return name
 
 
+
+# Compute the center point (x, y) of a Rekognition-style bounding box.
 def _center(b):
     return (
         float(b.get("Left", 0)) + float(b.get("Width", 0)) / 2.0,
@@ -74,10 +90,14 @@ def _center(b):
     )
 
 
+
+# Euclidean distance between two points.
 def _dist(a, b):
     return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
 
+
+# Intersection-over-Union for two Rekognition-style bounding boxes.
 def _iou(a, b):
     ax1, ay1 = float(a["Left"]), float(a["Top"])
     ax2, ay2 = ax1 + float(a["Width"]), ay1 + float(a["Height"])
@@ -101,6 +121,8 @@ def _iou(a, b):
     return inter / union
 
 
+
+# Create a pre-signed S3 GET URL for an object key (or None on failure).
 def presign_get_url(bucket, key):
     if not key:
         return None
@@ -114,9 +136,12 @@ def presign_get_url(bucket, key):
         return None
 
 
-# ===============================
+# =============================================================================
 # Bucket resolution (Option C)
-# ===============================
+# =============================================================================
+
+
+# Check whether a bucket contains at least one object under a given prefix.
 def _bucket_has_prefix(bucket: str, prefix: str) -> bool:
     try:
         r = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
@@ -125,6 +150,9 @@ def _bucket_has_prefix(bucket: str, prefix: str) -> bool:
         return False
 
 
+
+# Resolve which bucket to use.
+# NOTE: This helper currently returns the FRAMES_BUCKET env fallback.
 def _resolve_bucket(prefix_to_check: str) -> str:
     """
     Priority:
@@ -136,6 +164,8 @@ def _resolve_bucket(prefix_to_check: str) -> str:
     return FRAMES_BUCKET_ENV
 
 
+
+# Find buckets matching a prefix and choose the newest bucket that contains data_prefix.
 def _pick_bucket_by_prefix(bucket_prefix: str, data_prefix: str) -> str:
     """
     Finds buckets starting with bucket_prefix and picks the newest one
@@ -156,7 +186,9 @@ def _pick_bucket_by_prefix(bucket_prefix: str, data_prefix: str) -> str:
         candidates.append((created, name))
 
     # newest -> oldest
-    candidates.sort(key=lambda x: x[0] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    candidates.sort(
+        key=lambda x: x[0] or datetime.min.replace(tzinfo=timezone.utc), reverse=True
+    )
 
     for _, name in candidates:
         if _bucket_has_prefix(name, data_prefix):
@@ -169,9 +201,12 @@ def _pick_bucket_by_prefix(bucket_prefix: str, data_prefix: str) -> str:
     return FRAMES_BUCKET_ENV
 
 
-# =========================
+# =============================================================================
 # Rekognition detection
-# =========================
+# =============================================================================
+
+
+# Run Rekognition label detection and extract bounding boxes for "Person" instances.
 def detect_person_boxes(bucket, key):
     try:
         res = rekognition.detect_labels(
@@ -213,9 +248,12 @@ def detect_person_boxes(bucket, key):
         return []
 
 
-# =========================
+# =============================================================================
 # Missing boxes ONLY when counter dropped
-# =========================
+# =============================================================================
+
+
+# Identify boxes from prev_boxes that do not match any current box.
 def find_missing_boxes(prev_boxes, curr_boxes):
     if not prev_boxes:
         return []
@@ -243,6 +281,8 @@ def find_missing_boxes(prev_boxes, curr_boxes):
     return missing
 
 
+
+# Choose up to drop_by missing boxes with the strongest "missing" score.
 def pick_top_missing(prev_boxes, curr_boxes, missing_candidates, drop_by):
     if drop_by <= 0:
         return []
@@ -272,9 +312,12 @@ def pick_top_missing(prev_boxes, curr_boxes, missing_candidates, drop_by):
     return [pb for _, pb in scored[:drop_by]]
 
 
-# ===============================
+# =============================================================================
 # List frames — BY LastModified
-# ===============================
+# =============================================================================
+
+
+# List image keys under a prefix in LastModified order (oldest -> newest).
 def list_frames_numeric(bucket, prefix, max_frames):
     paginator = s3.get_paginator("list_objects_v2")
     pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
@@ -297,9 +340,14 @@ def list_frames_numeric(bucket, prefix, max_frames):
     return keys
 
 
-# =========================
+# =============================================================================
 # Normalize event (Function URL)
-# =========================
+# =============================================================================
+
+
+# Normalize incoming Lambda event payload into a plain dict.
+# - If this is a Function URL/APIGW event, parse event["body"] JSON.
+# - If base64 encoded, decode it first.
 def _normalize_event(event):
     if not isinstance(event, dict):
         return {}
@@ -311,6 +359,7 @@ def _normalize_event(event):
     if event.get("isBase64Encoded"):
         try:
             import base64
+
             body = base64.b64decode(body).decode("utf-8")
         except Exception:
             body = "{}"
@@ -325,9 +374,12 @@ def _normalize_event(event):
         return {}
 
 
-# =========================
+# =============================================================================
 # Invoke helpers
-# =========================
+# =============================================================================
+
+
+# Invoke the Render lambda synchronously (RequestResponse) and parse its JSON response.
 def invoke_render_lambda(payload: dict) -> dict:
     resp = lambda_client.invoke(
         FunctionName=RENDER_LAMBDA_NAME,
@@ -341,6 +393,8 @@ def invoke_render_lambda(payload: dict) -> dict:
         return {"ok": False, "error": "render_lambda_invalid_json", "raw": raw}
 
 
+
+# Invoke the Events lambda asynchronously (Event).
 def invoke_events_lambda(payload: dict) -> dict:
     resp = lambda_client.invoke(
         FunctionName=EVENTS_LAMBDA_NAME,
@@ -350,9 +404,17 @@ def invoke_events_lambda(payload: dict) -> dict:
     return {"invoked": True, "status_code": resp.get("StatusCode")}
 
 
-# =========================
-# Lambda Handler
-# =========================
+# =============================================================================
+# Lambda handler
+# =============================================================================
+
+
+# Orchestrate frame processing:
+# - list frames
+# - detect people per frame
+# - track counter drops + missing boxes
+# - render annotated output frames
+# - create events (DDB + SNS) via Events lambda
 def lambda_handler(event, context):
     event = _normalize_event(event)
 
@@ -382,7 +444,7 @@ def lambda_handler(event, context):
         except Exception:
             pass
 
-    # Bucket resolution (works even if scripts create a new bucket every time)
+    # Bucket resolution (works even if scripts create a new bucket every time).
     # Priority:
     # - event.bucket (if sent)
     # - FRAMES_BUCKET_PREFIX -> newest matching bucket that has objects under prefix
@@ -475,7 +537,7 @@ def lambda_handler(event, context):
 
         drowningset_key = f"{drowningset_prefix}{_basename(key)}_{status_label}.png"
 
-        # call Render lambda (draw + S3 + presign)
+        # Call Render lambda (draw + S3 + presign).
         render_payload = {
             "bucket": BUCKET,
             "src_key": key,
@@ -496,10 +558,12 @@ def lambda_handler(event, context):
             created_at_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
             prev_url_for_sns = (
-                presign_get_url(BUCKET, prev_drowningset_key) if prev_drowningset_key else None
+                presign_get_url(BUCKET, prev_drowningset_key)
+                if prev_drowningset_key
+                else None
             )
 
-            # invoke Events lambda (DDB + SNS)
+            # Invoke Events lambda (DDB + SNS).
             events_payload = {
                 "eventId": created_event_id,
                 "created_at": created_at_iso,
