@@ -44,6 +44,8 @@ if (!DETECTOR_LAMBDA_URL) {
   );
 }
 
+
+
 // =============================================================================
 // Token storage (localStorage)
 // =============================================================================
@@ -126,6 +128,13 @@ window.LS_stopDetector = function () {
   setDetectorOverlay(false);
   console.log("Detector aborted by user");
 };
+
+// =============================================================================
+// Polling (refresh events every 5s)
+// =============================================================================
+let eventsPollTimer = null;
+let eventsFetchInFlight = false;
+
 
 // =============================================================================
 // Helpers
@@ -522,6 +531,9 @@ async function runDetectorTest(testName) {
 
 // Fetch event list from API and update UI widgets.
 async function fetchEvents() {
+  if (eventsFetchInFlight) return; // prevent overlapping calls
+  eventsFetchInFlight = true;
+
   try {
     const res = await apiFetch(`/events`);
     allEvents = await res.json();
@@ -529,15 +541,11 @@ async function fetchEvents() {
     const dataArr = Array.isArray(allEvents) ? allEvents : [];
 
     const statTotal = document.getElementById("stat-total");
-    if (statTotal) {
-      animateCounter(statTotal, dataArr.length);
-    }
+    if (statTotal) animateCounter(statTotal, dataArr.length);
 
     const statOpen = document.getElementById("stat-open");
     if (statOpen) {
-      const openCount = dataArr.filter(
-        (e) => normalizeStatus(e.status) === "OPEN",
-      ).length;
+      const openCount = dataArr.filter((e) => normalizeStatus(e.status) === "OPEN").length;
       animateCounter(statOpen, openCount);
     }
 
@@ -545,7 +553,26 @@ async function fetchEvents() {
     updateManagerChart(dataArr);
   } catch (e) {
     console.error(e);
+  } finally {
+    eventsFetchInFlight = false;
   }
+}
+
+function startEventsPolling(intervalMs = 5000) {
+  stopEventsPolling(); // avoid duplicates
+
+  // fetch immediately, then every interval
+  fetchEvents();
+  eventsPollTimer = setInterval(() => {
+    // optional: don’t poll when tab is hidden
+    if (document.hidden) return;
+    fetchEvents();
+  }, intervalMs);
+}
+
+function stopEventsPolling() {
+  if (eventsPollTimer) clearInterval(eventsPollTimer);
+  eventsPollTimer = null;
 }
 
 
@@ -894,7 +921,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     showScreen("manager-dashboard");
-    fetchEvents();
+    startEventsPolling(5000);
   } catch {
     window.location.href = "../pages/login.html";
   }
