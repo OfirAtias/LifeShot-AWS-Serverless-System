@@ -149,6 +149,13 @@ function getSafeUrl(url) {
   return `${url}${separator}cb=${Date.now()}`;
 }
 
+// ✅ NEW: Format responseSeconds (lifeguard response/close time)
+function formatResponseSeconds(val) {
+  const n = Number(val);
+  if (!Number.isFinite(n) || n < 0) return "N/A";
+  return `${Math.round(n)}s`;
+}
+
 // =============================================================================
 // Number counter animation
 // =============================================================================
@@ -602,6 +609,14 @@ function renderGallery(data) {
       afterOnClick = `onclick="openLightboxByIndex(${idx})"`;
     }
 
+    // ✅ NEW: show responseSeconds only for CLOSED events
+    const responseLine =
+      status === "CLOSED"
+        ? `<div class="card-response-text">Response Time: <b>${formatResponseSeconds(
+            evt.responseSeconds,
+          )}</b></div>`
+        : "";
+
     const card = document.createElement("div");
     card.className = "event-card-item";
 
@@ -610,6 +625,9 @@ function renderGallery(data) {
          <div class="card-time-text">${dateStr}</div>
          <span class="status-badge ${statusClass}">${status}</span>
       </div>
+
+      ${responseLine}
+
       <div class="card-images-row">
          <div class="card-img-wrap">
             <span class="card-img-label">Before</span>
