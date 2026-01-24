@@ -83,6 +83,30 @@ let currentLightboxImages = [];
 let currentLightboxIndex = 0;
 let myPieChart = null; // משתנה לשמירת הגרף
 
+// ✅ NEW: Prevent Test1->Test2 chaining / double clicks / parallel runs
+let detectorInFlight = false;
+let detectorAbort = null;
+
+function setDetectorButtonsDisabled(disabled) {
+  // ✅ Update these IDs to match your actual buttons if needed
+  const btn1 = document.getElementById("btn-run-test1");
+  const btn2 = document.getElementById("btn-run-test2");
+  if (btn1) btn1.disabled = disabled;
+  if (btn2) btn2.disabled = disabled;
+}
+
+// Allow stopping a running detector request from console
+window.LS_stopDetector = function () {
+  try {
+    if (detectorAbort) detectorAbort.abort();
+  } catch {}
+  detectorAbort = null;
+  detectorInFlight = false;
+  setDetectorButtonsDisabled(false);
+  setDetectorOverlay(false);
+  console.log("Detector aborted by user");
+};
+
 // ===============================
 // HELPERS
 // ===============================
@@ -287,6 +311,31 @@ async function apiFetch(path, options = {}) {
   return res;
 }
 
+async function deleteEvent(eventId) {
+  if (!eventId) return;
+
+  const ok = confirm(`Delete event ${eventId} permanently?`);
+  if (!ok) return;
+
+  try {
+    const res = await apiFetch(`/events`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || `DELETE failed (${res.status})`);
+
+    // רענון
+    await fetchEvents();
+    alert("Event deleted ✅");
+  } catch (e) {
+    console.error(e);
+    alert("Delete failed ❌ (check token/permissions/logs)");
+  }
+}
+
 // ===============================
 // UI NAV
 // ===============================
@@ -313,6 +362,16 @@ async function logout() {
 //  RUN DETECTOR (LifeShot-Detector Lambda Function URL)
 // ===============================
 async function runDetectorTest(testName) {
+  // ✅ HARD STOP: no parallel runs / no chaining
+  if (detectorInFlight) {
+    console.warn("Detector already running. Ignoring click.");
+    return;
+  }
+  detectorInFlight = true;
+  setDetectorButtonsDisabled(true);
+
+  detectorAbort = new AbortController();
+
   setDetectorOverlay(true, {
     title: "Running detector…",
     msg: `Triggering ${testName} (please wait)`,
@@ -321,53 +380,85 @@ async function runDetectorTest(testName) {
   });
 
   try {
-    const isTest2 = testName === "Test2";
+    const payload =
+      testName === "Test2"
+        ? {
+            prefix: "LifeShot/DrowningSet/Test2/",
+            max_frames: 12,
+            single_prefix_only: true,
+          }
+        : {
+            prefix: "LifeShot/DrowningSet/Test1/",
+            max_frames: 8,
+            single_prefix_only: true,
+          };
 
-    const payload = {
-      scene: isTest2 ? 2 : 1,           
-      prefix: isTest2 ? "LifeShot/Test2/" : "LifeShot/Test1/", 
-      drowningset_prefix: isTest2
-        ? "LifeShot/DrowningSet/Test2/"
-        : "LifeShot/DrowningSet/Test1/",    
-      max_frames: isTest2 ? 12 : 8,
-    };
+    console.log("DETECTOR_LAMBDA_URL =", DETECTOR_LAMBDA_URL);
+    console.log("payload =", payload);
 
     const res = await fetch(DETECTOR_LAMBDA_URL, {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+      },
       body: JSON.stringify(payload),
+      signal: detectorAbort.signal,
     });
 
     const text = await res.text();
     let data = {};
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      console.error("Detector failed:", res.status, data);
+
+      setDetectorOverlay(true, {
+        title: "Detector failed ❌",
+        msg: `HTTP ${res.status}`,
+        status: "Check console / CloudWatch logs",
+        spinning: false,
+      });
+      await sleep(1400);
+      return;
+    }
+
+    console.log("Detector result:", data);
 
     setDetectorOverlay(true, {
-      title: "Done",
+      title: "Done ✅",
       msg: `${testName} triggered successfully`,
       status: "Completed",
       spinning: false,
     });
     await sleep(900);
-    setDetectorOverlay(false);
-
-    alert(`Detector triggered successfully (${testName})`);
   } catch (err) {
-    console.error(err);
-    setDetectorOverlay(true, {
-      title: "Detector error ❌",
-      msg: "Request error",
-      status: "Check console",
-      spinning: false,
-    });
-    await sleep(1400);
+    if (err?.name === "AbortError") {
+      console.warn("Detector request aborted");
+      // no alert
+    } else {
+      console.error("Detector error:", err);
+
+      setDetectorOverlay(true, {
+        title: "Detector error ❌",
+        msg: "Request error",
+        status: "Check console",
+        spinning: false,
+      });
+      await sleep(1400);
+
+      alert("Error triggering detector. Check console.");
+    }
+  } finally {
     setDetectorOverlay(false);
-    alert("Error triggering detector. Check console.");
+    detectorInFlight = false;
+    detectorAbort = null;
+    setDetectorButtonsDisabled(false);
   }
 }
-
 
 // ===============================
 // MANAGER LOGIC
