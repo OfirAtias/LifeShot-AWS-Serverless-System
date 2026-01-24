@@ -440,8 +440,12 @@ body::before {
 
 .noEventsMessage {
   display: none;
-  text-align: center;
-  margin-top: 20px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.2rem;
 }
 
 /* ================= LIGHTBOX ================= */

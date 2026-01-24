@@ -44,12 +44,9 @@ if (!DETECTOR_LAMBDA_URL) {
   );
 }
 
-
-
 // =============================================================================
 // Token storage (localStorage)
 // =============================================================================
-
 
 // Clear all stored tokens and expiry metadata.
 function clearTokens() {
@@ -59,18 +56,15 @@ function clearTokens() {
   localStorage.removeItem("ls_expires_at");
 }
 
-
 // Read the stored access token.
 function getAccessToken() {
   return localStorage.getItem("ls_access_token") || "";
 }
 
-
 // Read the stored ID token.
 function getIdToken() {
   return localStorage.getItem("ls_id_token") || "";
 }
-
 
 // Determine whether the saved token expiry has passed.
 function isTokenExpired() {
@@ -86,7 +80,6 @@ function getApiBearerToken() {
   if (at) return at;
   return getIdToken(); // fallback
 }
-
 
 // Build an Authorization header if token exists and is not expired.
 function authHeader() {
@@ -106,7 +99,6 @@ let myPieChart = null; // משתנה לשמירת הגרף
 // ✅ NEW: Prevent Test1->Test2 chaining / double clicks / parallel runs
 let detectorInFlight = false;
 let detectorAbort = null;
-
 
 // Enable/disable the run-test buttons while the detector is in-flight.
 function setDetectorButtonsDisabled(disabled) {
@@ -135,24 +127,20 @@ window.LS_stopDetector = function () {
 let eventsPollTimer = null;
 let eventsFetchInFlight = false;
 
-
 // =============================================================================
 // Helpers
 // =============================================================================
-
 
 // Normalize an event status into an uppercase string.
 function normalizeStatus(s) {
   return String(s || "").toUpperCase();
 }
 
-
 // Parse a date string safely (returns epoch date on failure).
 function parseDateSafe(s) {
   const d = new Date(s);
   return isNaN(d.getTime()) ? new Date(0) : d;
 }
-
 
 // Add a cache-busting query parameter to a URL.
 function getSafeUrl(url) {
@@ -164,7 +152,6 @@ function getSafeUrl(url) {
 // =============================================================================
 // Number counter animation
 // =============================================================================
-
 
 // Animate a numeric counter in the UI up to targetValue.
 function animateCounter(element, targetValue, duration = 1500) {
@@ -195,7 +182,6 @@ function animateCounter(element, targetValue, duration = 1500) {
 // =============================================================================
 // Loading overlay (injected UI)
 // =============================================================================
-
 
 // Inject the detector overlay HTML/CSS once.
 function ensureDetectorOverlay() {
@@ -280,7 +266,6 @@ function ensureDetectorOverlay() {
   document.body.appendChild(overlay);
 }
 
-
 // Toggle the detector overlay and optionally update its UI text.
 function setDetectorOverlay(active, { title, msg, status, spinning } = {}) {
   ensureDetectorOverlay();
@@ -300,7 +285,6 @@ function setDetectorOverlay(active, { title, msg, status, spinning } = {}) {
   else overlay.classList.remove("active");
 }
 
-
 // Sleep helper for delaying UI transitions.
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -309,7 +293,6 @@ function sleep(ms) {
 // =============================================================================
 // Auth (Lambda Auth)
 // =============================================================================
-
 
 // Call /auth/me to validate the current token and retrieve role/groups.
 async function authMe() {
@@ -327,7 +310,6 @@ async function authMe() {
   return data; // { ok, role, groups, ... }
 }
 
-
 // Call /auth/logout (best-effort) to end the session.
 async function authLogout() {
   await fetch(`${AUTH_BASE_URL}/auth/logout`, {
@@ -339,7 +321,6 @@ async function authLogout() {
 // =============================================================================
 // API fetch (adds Authorization for API Gateway)
 // =============================================================================
-
 
 // Fetch helper that injects Authorization headers and handles auth errors.
 async function apiFetch(path, options = {}) {
@@ -365,7 +346,6 @@ async function apiFetch(path, options = {}) {
   return res;
 }
 
-
 // Attempt to delete an event (requires backend support).
 async function deleteEvent(eventId) {
   if (!eventId) return;
@@ -381,7 +361,8 @@ async function deleteEvent(eventId) {
     });
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || `DELETE failed (${res.status})`);
+    if (!res.ok)
+      throw new Error(data?.error || `DELETE failed (${res.status})`);
 
     // רענון
     await fetchEvents();
@@ -395,7 +376,6 @@ async function deleteEvent(eventId) {
 // =============================================================================
 // UI navigation
 // =============================================================================
-
 
 // Show a given screen and hide the others.
 function showScreen(id) {
@@ -411,7 +391,6 @@ function showScreen(id) {
   }
 }
 
-
 // Logout: call auth endpoint, clear tokens, then redirect to login.
 async function logout() {
   await authLogout();
@@ -422,7 +401,6 @@ async function logout() {
 // =============================================================================
 // Run detector (LifeShot-Detector Lambda Function URL)
 // =============================================================================
-
 
 // Trigger the detector for a specific demo test dataset.
 async function runDetectorTest(testName) {
@@ -528,7 +506,6 @@ async function runDetectorTest(testName) {
 // Manager logic
 // =============================================================================
 
-
 // Fetch event list from API and update UI widgets.
 async function fetchEvents() {
   if (eventsFetchInFlight) return; // prevent overlapping calls
@@ -545,7 +522,9 @@ async function fetchEvents() {
 
     const statOpen = document.getElementById("stat-open");
     if (statOpen) {
-      const openCount = dataArr.filter((e) => normalizeStatus(e.status) === "OPEN").length;
+      const openCount = dataArr.filter(
+        (e) => normalizeStatus(e.status) === "OPEN",
+      ).length;
       animateCounter(statOpen, openCount);
     }
 
@@ -574,7 +553,6 @@ function stopEventsPolling() {
   if (eventsPollTimer) clearInterval(eventsPollTimer);
   eventsPollTimer = null;
 }
-
 
 // Render the events gallery cards (and prepare lightbox image list).
 function renderGallery(data) {
@@ -661,7 +639,6 @@ function renderGallery(data) {
   });
 }
 
-
 // Filter gallery by status.
 function filterTable(type) {
   if (type === "ALL") renderGallery(allEvents);
@@ -673,14 +650,12 @@ function filterTable(type) {
 // Demo page logic
 // =============================================================================
 
-
 // Render the demo screen with two camera grids.
 function renderDemoPage() {
   currentLightboxImages = [];
   renderSingleCamera("demo-container-cam1", "Test1", 8);
   renderSingleCamera("demo-container-cam2", "Test2", 12);
 }
-
 
 // Render a single camera image grid and wire up lightbox clicks.
 function renderSingleCamera(containerId, folderName, imageCount) {
@@ -720,7 +695,6 @@ function renderSingleCamera(containerId, folderName, imageCount) {
 // Lightbox
 // =============================================================================
 
-
 // Open the lightbox with a specific image URL.
 function openLightbox(src) {
   const lb = document.getElementById("image-lightbox");
@@ -731,13 +705,11 @@ function openLightbox(src) {
   }
 }
 
-
 // Open the lightbox for an image by its index in currentLightboxImages.
 function openLightboxByIndex(index) {
   currentLightboxIndex = index;
   updateLightboxView();
 }
-
 
 // Update the lightbox DOM to reflect currentLightboxIndex.
 function updateLightboxView() {
@@ -757,7 +729,6 @@ function updateLightboxView() {
   }
 }
 
-
 // Advance to the next lightbox image.
 function nextLightboxImage() {
   if (currentLightboxImages.length === 0) return;
@@ -765,7 +736,6 @@ function nextLightboxImage() {
     (currentLightboxIndex + 1) % currentLightboxImages.length;
   updateLightboxView();
 }
-
 
 // Go back to the previous lightbox image.
 function prevLightboxImage() {
@@ -780,17 +750,16 @@ function prevLightboxImage() {
 // Manager dashboard chart
 // =============================================================================
 
-
 // Update the doughnut chart with recent activity stats.
 function updateManagerChart(events) {
   const canvas = document.getElementById("eventsPieChart");
   const titleElement = document.getElementById("chartTitle");
   const noEventsMsg = document.getElementById("noEventsMessage");
+
   if (!canvas) return;
 
   if (!events || events.length === 0) {
     if (window.myPieChart instanceof Chart) window.myPieChart.destroy();
-
     canvas.style.display = "none";
     if (noEventsMsg) noEventsMsg.style.display = "block";
     if (titleElement) titleElement.innerText = "NO DATA";
@@ -807,23 +776,29 @@ function updateManagerChart(events) {
   let countPrev24h = 0;
   let latestDate = null;
 
+  const isSameDay = (d1, d2) => {
+    return (
+      d1.getFullYear() === d2.getFullYear() &&
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate()
+    );
+  };
+
   const formatDate = (d) => {
     try {
       return new Intl.DateTimeFormat("he-IL", {
-        year: "numeric",
-        month: "2-digit",
         day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
+        month: "2-digit",
+        year: "numeric",
       }).format(d);
     } catch {
-      return d.toISOString().replace("T", " ").substring(0, 16);
+      return d.toISOString().substring(0, 10);
     }
   };
 
   events.forEach((e) => {
-    const d = parseDateSafe(e.created_at);
-    if (!(d instanceof Date) || isNaN(d.getTime())) return;
+    const d = new Date(e.created_at);
+    if (isNaN(d.getTime())) return;
 
     if (!latestDate || d.getTime() > latestDate.getTime()) latestDate = d;
 
@@ -832,33 +807,58 @@ function updateManagerChart(events) {
     else if (diff >= MS_24H && diff < 2 * MS_24H) countPrev24h++;
   });
 
-  if (window.myPieChart instanceof Chart) window.myPieChart.destroy();
-
   const noRecent = countLast24h === 0 && countPrev24h === 0;
   const lastEventString = latestDate ? formatDate(latestDate) : "N/A";
 
-  if (titleElement) {
-    if (noRecent) {
-      titleElement.innerText = `LAST EVENT: ${lastEventString}`;
+  let chartLabels = [];
+  let chartData = [];
+  let chartColors = [];
+
+  if (noRecent) {
+    let countOnLatestDay = 0;
+    if (latestDate) {
+      events.forEach((e) => {
+        const d = new Date(e.created_at);
+        if (isSameDay(d, latestDate)) {
+          countOnLatestDay++;
+        }
+      });
+    }
+
+    chartLabels = [lastEventString];
+    chartData = [countOnLatestDay];
+    chartColors = ["#274272"];
+
+    if (titleElement)
+      titleElement.innerText = `LAST ACTIVITY: ${lastEventString}`;
+  } else {
+    if (titleElement) titleElement.innerText = "ACTIVITY TODAY VS YESTERDAY";
+
+    if (countPrev24h === 0) {
+      chartLabels = ["Today"];
+      chartData = [countLast24h];
+      chartColors = ["#274272"];
+    } else if (countLast24h === 0) {
+      chartLabels = ["Yesterday"];
+      chartData = [countPrev24h];
+      chartColors = ["rgba(255, 255, 255, 0.3)"];
     } else {
-      titleElement.innerText = "ACTIVITY TODAY VS YESTERDAY";
+      chartLabels = ["Today", "Yesterday"];
+      chartData = [countLast24h, countPrev24h];
+      chartColors = ["#274272", "rgba(255, 255, 255, 0.3)"];
     }
   }
 
-  const labels = noRecent ? ["Last event"] : ["Last 24h", "24–48h"];
-  const data = noRecent ? [1] : [countLast24h, countPrev24h];
-  const bg = noRecent
-    ? ["rgba(255,255,255,0.12)"]
-    : ["#274272", "rgba(255, 255, 255, 0.3)"];
+  if (window.myPieChart instanceof Chart) window.myPieChart.destroy();
 
   window.myPieChart = new Chart(canvas, {
     type: "doughnut",
     data: {
-      labels,
+      labels: chartLabels,
       datasets: [
         {
-          data,
-          backgroundColor: bg,
+          data: chartData,
+          backgroundColor: chartColors,
           borderColor: "transparent",
           borderWidth: 0,
           hoverOffset: 4,
@@ -875,20 +875,9 @@ function updateManagerChart(events) {
             color: "white",
             font: { size: 14, family: "'Segoe UI', sans-serif" },
             padding: 20,
-            generateLabels(chart) {
-              const original =
-                Chart.defaults.plugins.legend.labels.generateLabels(chart);
-              if (!noRecent) return original;
-              return original.map((it) => ({
-                ...it,
-                text: `${lastEventString}`,
-              }));
-            },
           },
         },
-        tooltip: {
-          enabled: !noRecent,
-        },
+        tooltip: { enabled: true },
       },
     },
   });
