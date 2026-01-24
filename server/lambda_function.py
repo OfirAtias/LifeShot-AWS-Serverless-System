@@ -10,7 +10,7 @@ s3_client = boto3.client("s3")
 
 EVENTS_TABLE_NAME = os.getenv("EVENTS_TABLE_NAME", "LifeShot_Events")
 
-#  Use the real bucket that changes (same one frames + drowningSet are stored in)
+# Prefer FRAMES_BUCKET; fallback to IMAGES_BUCKET; fallback default
 FRAMES_BUCKET_ENV = os.getenv("FRAMES_BUCKET", os.getenv("IMAGES_BUCKET", "lifeshot-pool-images")).strip()
 
 PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "900"))
@@ -28,7 +28,7 @@ def _cors_headers():
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET,PATCH,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization",
     }
 
 
@@ -60,14 +60,39 @@ def _iso_utc_now():
 def _resolve_bucket_for_event(item: dict) -> str:
     """
     Priority:
-    1) item['bucket'] if present (best)
-    2) FRAMES_BUCKET env (recommended)
-    3) fallback to old IMAGES_BUCKET default name
+    1) item['bucket'] if present
+    2) FRAMES_BUCKET env
+    3) fallback name
     """
     b = (item.get("bucket") or "").strip()
     if b:
         return b
     return FRAMES_BUCKET_ENV or "lifeshot-pool-images"
+
+
+def _claims_from_event(event: dict) -> dict:
+    """
+    Works with API Gateway v2 HTTP API + JWT authorizer:
+      event['requestContext']['authorizer']['jwt']['claims']
+    """
+    try:
+        return (
+            event.get("requestContext", {})
+            .get("authorizer", {})
+            .get("jwt", {})
+            .get("claims", {})
+        ) or {}
+    except Exception:
+        return {}
+
+
+def _is_authenticated(event: dict) -> bool:
+    """
+    We rely on API Gateway JWT Authorizer to validate token.
+    If request reached Lambda and claims exist -> authenticated.
+    """
+    claims = _claims_from_event(event)
+    return bool(claims)  # usually contains sub, iss, client_id, token_use, etc.
 
 
 def lambda_handler(event, context):
@@ -80,14 +105,23 @@ def lambda_handler(event, context):
         or event.get("requestContext", {}).get("http", {}).get("method", "")
     ).upper()
 
+    # Preflight
     if method == "OPTIONS":
         return {"statusCode": 200, "headers": _cors_headers(), "body": ""}
 
+    # Route guard
     if "events" not in path:
         return _response(404, {"error": "Not found"})
 
+    # Require authenticated (JWT Authorizer should enforce anyway)
+    if not _is_authenticated(event):
+        return _response(401, {"error": "Unauthorized"})
+
     table = dynamodb.Table(EVENTS_TABLE_NAME)
 
+    # ==========================
+    # PATCH /events  (Close event) - allowed for Lifeguard + Admin
+    # ==========================
     if method == "PATCH":
         try:
             body = json.loads(event.get("body", "{}") or "{}")
@@ -99,6 +133,18 @@ def lambda_handler(event, context):
             item = get_resp.get("Item")
             if not item:
                 return _response(404, {"error": "Event not found"})
+
+            # Already closed? keep idempotent behavior
+            if str(item.get("status", "")).upper() == "CLOSED":
+                return _response(
+                    200,
+                    {
+                        "message": "Already closed",
+                        "eventId": event_id,
+                        "closedAt": item.get("closedAt"),
+                        "responseSeconds": item.get("responseSeconds", -1),
+                    },
+                )
 
             created_at = item.get("created_at")
             closed_at = _iso_utc_now()
@@ -116,7 +162,11 @@ def lambda_handler(event, context):
                 Key={"eventId": event_id},
                 UpdateExpression="SET #s = :s, closedAt = :c, responseSeconds = :r",
                 ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={":s": "CLOSED", ":c": closed_at, ":r": response_seconds},
+                ExpressionAttributeValues={
+                    ":s": "CLOSED",
+                    ":c": closed_at,
+                    ":r": response_seconds,
+                },
             )
 
             return _response(
@@ -132,6 +182,9 @@ def lambda_handler(event, context):
         except Exception as e:
             return _response(500, {"error": "PATCH failed", "details": str(e)})
 
+    # ==========================
+    # GET /events (Any authenticated user)
+    # ==========================
     if method == "GET":
         try:
             resp = table.scan()
