@@ -202,7 +202,7 @@ async function checkLiveAlerts() {
       if (currentAlertIndex >= activeAlertsList.length) currentAlertIndex = 0;
 
       if (!window.alertSoundPlayed) {
-        new Audio("https://www.soundjay.com/buttons/beep-01a.mp3")
+        new Audio("https://www.soundjay.com/buttons_c2026/sounds/beep-01a.mp3")
           .play()
           .catch(() => {});
         window.alertSoundPlayed = true;
