@@ -221,7 +221,7 @@ def wait_lambda_active(client_lambda, fn_name: str, timeout_sec: int = 180) -> N
         raise RuntimeError(f"Lambda did not become Active in time: {fn_name}")
 
 
-    # Ensure a specific Lambda permission statement exists (idempotent).
+# Ensure a specific Lambda permission statement exists (idempotent).
 def ensure_lambda_permission_invoke(
     client_lambda,
     fn_name: str,
@@ -230,6 +230,7 @@ def ensure_lambda_permission_invoke(
     action: str,
     source_arn: Optional[str] = None,
     function_url_auth_type: Optional[str] = None,
+    invoked_via_function_url: Optional[bool] = None,
 ) -> None:
     kwargs = {
         "FunctionName": fn_name,
@@ -241,6 +242,8 @@ def ensure_lambda_permission_invoke(
         kwargs["SourceArn"] = source_arn
     if function_url_auth_type:
         kwargs["FunctionUrlAuthType"] = function_url_auth_type
+    if invoked_via_function_url is not None:
+        kwargs["InvokedViaFunctionUrl"] = invoked_via_function_url
 
     def _call():
         return client_lambda.add_permission(**kwargs)
@@ -500,34 +503,6 @@ def _numeric_sort_key(path: str):
     return int(m.group(1)) if m else 0
 
 
-# Upload images from a local directory to an S3 prefix in numeric order.
-def upload_images_to_prefix(s3, bucket: str, local_dir: str, prefix: str) -> int:
-    files = list_image_files(local_dir)
-    files.sort(key=_numeric_sort_key)
-
-    if not prefix.endswith("/"):
-        prefix = prefix + "/"
-
-    uploaded = 0
-    for idx, fp in enumerate(files, start=1):
-        key = f"{prefix}{idx:05d}_{os.path.basename(fp)}"
-
-        s3.upload_file(
-            fp,
-            bucket,
-            key,
-            ExtraArgs={
-                # bonus: keep explicit ordering metadata (optional)
-                "Metadata": {"frame_index": str(idx)}
-            },
-        )
-
-        uploaded += 1
-
-    log(f"Uploaded {uploaded} images to s3://{bucket}/{prefix} in numeric order")
-    return uploaded
-
-
 # Find a previously-created bucket (by naming convention) that is writeable.
 def find_existing_writeable_bucket(s3, base_name: str, account_id: str) -> Optional[str]:
     """
@@ -730,7 +705,6 @@ def ensure_s3_structure_and_upload(s3, desired_bucket: str, base_prefix: str, he
 
 
 def upload_images_to_prefix_if_needed(s3, bucket: str, local_dir: str, prefix: str) -> int:
-    # אם כבר יש קבצים ב־prefix הזה — לא מעלה שוב (כדי לא לשכפל כל ריצה)
     if s3_prefix_has_files(s3, bucket, prefix):
         log(f"Prefix already has files, skipping upload: s3://{bucket}/{prefix}")
         return 0
@@ -743,7 +717,6 @@ def upload_images_to_prefix_ordered(s3, bucket: str, local_dir: str, prefix: str
         log(f"No image files found in: {local_dir}")
         return 0
 
-    # ממיין לפי המספר בשם הקובץ (1.jpg, 2.jpg, 10.jpg וכו’)
     files.sort(key=_numeric_sort_key)
 
     if not prefix.endswith("/"):
@@ -752,7 +725,6 @@ def upload_images_to_prefix_ordered(s3, bucket: str, local_dir: str, prefix: str
     uploaded = 0
     for idx, fp in enumerate(files, start=1):
         ext = os.path.splitext(fp)[1].lower() or ".jpg"
-        # KEY מסודר תמיד: 00001.jpg, 00002.jpg ...
         key = f"{prefix}{idx:05d}{ext}"
 
         s3.upload_file(fp, bucket, key)
@@ -1444,10 +1416,9 @@ def merge_lambda_env_vars(client_lambda, fn_name: str, updates: Dict[str, Option
 def ensure_function_url(client_lambda, fn_name: str, allowed_origin: str) -> str:
     wait_lambda_active(client_lambda, fn_name)
 
-    #  Lambda Function URL CORS does NOT accept "OPTIONS" here
     cors_cfg = {
         "AllowOrigins": ["*"],
-        "AllowMethods": ["POST"],  # <-- remove OPTIONS
+        "AllowMethods": ["POST"],
         "AllowHeaders": ["content-type", "authorization"],
         "ExposeHeaders": [],
         "MaxAge": 0,
@@ -1990,8 +1961,19 @@ def main() -> None:
         action="lambda:InvokeFunctionUrl",
         function_url_auth_type="NONE",
     )
+
+    ensure_lambda_permission_invoke(
+        client_lambda,
+        fn_name=DETECTOR_LAMBDA_NAME,
+        statement_id=f"{STACK_PREFIX}DetectorInvokeFunctionViaUrlOnly",
+        principal="*",
+        action="lambda:InvokeFunction",
+        invoked_via_function_url=True,
+    )
+
     log(f"Detector Function URL: {detector_url}")
 
+    
     # -------------------------
     # Events API Lambda (/events)
     # -------------------------
